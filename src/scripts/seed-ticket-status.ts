@@ -7,7 +7,6 @@ const seedTicketStatuses = async () => {
     console.log('Database connected.');
     await sequelize.sync(); 
 
-    // Added 'Ready for QA' to the list of statuses
     const statuses = ['New', 'Open', 'In Progress', 'Ready for QA', 'In Testing', 'Done', 'Reopened', 'Resolved', 'Closed'];
 
     console.log('--- TICKET STATUSES ---');

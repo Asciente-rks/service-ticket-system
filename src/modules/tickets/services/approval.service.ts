@@ -24,7 +24,6 @@ export const approveTicket = async (ticketId: string, approverId: string, approv
         approvedAt: new Date()
     });
 
-    // Workflow: Update ticket status based on approval decision
     if (approvalData.status === 'Approved') {
         const closedStatus = await TicketStatus.findOne({ where: { name: 'Closed' } });
         if (closedStatus) {
@@ -37,7 +36,6 @@ export const approveTicket = async (ticketId: string, approverId: string, approv
         }
     }
 
-    // Trigger Notification for Reporter
     const reporterSettings = await notificationSettingService.getNotificationSettings(ticket.reportedBy);
     
     if (approvalData.status === 'Approved' && reporterSettings.notifyTicketApproved) {
@@ -54,7 +52,6 @@ export const approveTicket = async (ticketId: string, approverId: string, approv
         });
     }
 
-    // Trigger Notification for Assignee
     if (ticket.assignedTo) {
         const assigneeSettings = await notificationSettingService.getNotificationSettings(ticket.assignedTo);
         if (approvalData.status === 'Approved' && assigneeSettings.notifyTicketApproved) {

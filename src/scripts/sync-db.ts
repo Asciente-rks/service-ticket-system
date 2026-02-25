@@ -6,11 +6,9 @@ const syncDatabase = async () => {
     await sequelize.authenticate();
     console.log('Database connected.');
 
-    // Ensure associations are defined so foreign keys are recognized
     defineAssociations();
 
     console.log('Syncing database schema...');
-    // alter: true checks the current state of the tables and adds/updates columns
     await sequelize.sync({ alter: true });
     console.log('Database synchronized successfully.');
 

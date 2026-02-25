@@ -6,7 +6,6 @@ export const getNotificationSettings = async (userId: string): Promise<Notificat
     const settings = await notificationSettingRepository.findByUserId(userId);
     
     if (!settings) {
-        // Return defaults if no settings exist yet
         return {
             notifyAssignedTicket: true,
             notifyReportedTicket: true,

@@ -8,7 +8,6 @@ const seedRoles = async () => {
 
     await sequelize.sync(); 
 
-    // Changed 'Dev' to 'Developer' to match application code expectations
     const roles = ['Admin', 'Developer', 'Tester'];
 
     console.log('--- ROLES ---');
