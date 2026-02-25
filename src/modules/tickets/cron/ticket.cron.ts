@@ -5,12 +5,9 @@ import { TicketStatus } from '../models/ticket-status.model';
 import * as notificationService from '../../notifications/services/notification.service';
 
 export const initCronJobs = () => {
-    // Run every hour: '0 * * * *'
-    // For testing: '* * * * *' (every minute)
     cron.schedule('* * * * *', async () => {
         console.log('Running Stale Ticket Checker Job...');
         
-        // For testing: Check for tickets not updated in the last 5 minutes
         const staleThreshold = new Date(Date.now() - 5 * 60 * 1000);
 
         try {
