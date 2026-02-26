@@ -42,8 +42,7 @@ export const authorizeRoles = (allowedRoles: string[]) => {
         try {
             if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
             const userRole = await Role.findByPk(req.user.roleId);
-            
-            // SuperAdmin has access to everything
+
             if (userRole && userRole.name === 'SuperAdmin') {
                 return next();
             }
@@ -64,8 +63,7 @@ export const checkUserHierarchy = async (req: AuthRequest, res: Response, next: 
 
         const targetUserId = req.params.id;
         const actorId = req.user.id;
-        
-        // Allow users to modify themselves
+
         if (targetUserId === actorId) {
             return next();
         }
@@ -73,12 +71,10 @@ export const checkUserHierarchy = async (req: AuthRequest, res: Response, next: 
         const actorRole = await Role.findByPk(req.user.roleId);
         if (!actorRole) return res.status(403).json({ message: 'Role not found' });
 
-        // SuperAdmin can do anything
         if (actorRole.name === 'SuperAdmin') {
             return next();
         }
 
-        // If actor is Admin, check target's role
         if (actorRole.name === 'Admin') {
             const targetUser = await User.findByPk(targetUserId);
             if (!targetUser) return res.status(404).json({ message: 'User not found' });
@@ -90,7 +86,6 @@ export const checkUserHierarchy = async (req: AuthRequest, res: Response, next: 
             return next();
         }
 
-        // If not SuperAdmin or Admin (and not self), deny
         return res.status(403).json({ message: 'Forbidden: Insufficient permissions' });
 
     } catch (error) {

@@ -101,11 +101,9 @@ export const updateTicket = async (id: string, updates: UpdateTicketDto, userId:
     
     const updatedTicket = await ticketRepository.findById(id);
     if (!updatedTicket) return null;
-
-    // If the assignee has changed, notify the new assignee
     if (updates.assigneeId && ticket.assignedTo !== updates.assigneeId) {
         const newAssigneeId = updates.assigneeId;
-        if (newAssigneeId) { // A new user was assigned (not just unassigned)
+        if (newAssigneeId) { 
             const assignee = await User.findByPk(newAssigneeId);
             if (assignee) {
                 const assigneeRole = await Role.findByPk(assignee.roleId);
