@@ -4,11 +4,11 @@ import { sequelize, connectDB } from './config/db';
 import { defineAssociations } from './associations/associations';
 import { userRouter } from './modules/users/routes/user.routes';
 import { authRouter } from './modules/users/routes/auth.routes';
-import { ticketRouter
-  
- } from './modules/tickets/routes/ticket.routes';
+import { ticketRouter} from './modules/tickets/routes/ticket.routes';
 import { notificationRouter } from './modules/notifications/routes/notification.routes';
 import { initCronJobs } from './modules/tickets/cron/ticket.cron';
+import { notificationSettingsRouter } from './modules/users/routes/notification-settings.routes';
+
 dotenv.config();
 
 const PORT = process.env.PORT || 3000;
@@ -19,6 +19,7 @@ app.use('/users', userRouter);
 app.use('/auth', authRouter);
 app.use('/tickets', ticketRouter);
 app.use('/notifications', notificationRouter);
+app.use('/notification-settings', notificationSettingsRouter)
 
 const startServer = async () => {
   try {

@@ -5,16 +5,23 @@ import { getUser } from '../controllers/get-user.controller';
 import { updateUser } from '../controllers/update-user.controller';
 import { deleteUser } from '../controllers/delete-user.controller';
 import { authenticateToken } from '../../../middlewares/auth.middleware';
-import { isAdmin, isOwnerOrAdmin } from '../../../middlewares/permissions.middleware';
-import { getNotificationSettings } from '../controllers/get-notification-settings.controller';
-import { updateNotificationSettings } from '../controllers/update-notification-settings.controller';
+import { isAdmin, isOwnerOrAdmin, checkUserHierarchy } from '../../../middlewares/permissions.middleware';
+import { notificationSettingsRouter } from './notification-settings.routes';
+
+import { validate } from '../../../middlewares/validator.middleware';
+import {
+    createUserSchema,
+    updateUserSchema,
+    userIdParamsSchema
+} from '../../../utils/user.validation';
 
 export const userRouter = Router();
 
-userRouter.post('/', authenticateToken, isAdmin, createUser);
+// Mount specific sub-routers before generic/parameterized routes.
+userRouter.use('/notification-settings', authenticateToken, notificationSettingsRouter);
+
+userRouter.post('/', authenticateToken, isAdmin, validate(createUserSchema), createUser);
 userRouter.get('/', authenticateToken, isAdmin, listUsers);
-userRouter.get('/notification-settings', authenticateToken, getNotificationSettings);
-userRouter.patch('/notification-settings', authenticateToken, updateNotificationSettings);
-userRouter.get('/:id', authenticateToken, isOwnerOrAdmin, getUser);
-userRouter.put('/:id', authenticateToken, isOwnerOrAdmin, updateUser);
-userRouter.delete('/:id', authenticateToken, isAdmin, deleteUser);
+userRouter.get('/:id', authenticateToken, isOwnerOrAdmin, validate(userIdParamsSchema), getUser);
+userRouter.put('/:id', authenticateToken, isOwnerOrAdmin, checkUserHierarchy, validate(updateUserSchema), updateUser);
+userRouter.delete('/:id', authenticateToken, isOwnerOrAdmin, checkUserHierarchy, validate(userIdParamsSchema), deleteUser);

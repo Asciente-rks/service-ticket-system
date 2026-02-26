@@ -1,23 +1,23 @@
-import * as notificationSettingRepository from '../repositories/notification-setting.repository';
-import { UpdateNotificationSettingsDto } from '../dtos/update-notification-settings.dto';
-import { NotificationSettingResponseDto } from '../dtos/notification-setting-response.dto';
+import { NotificationSettings } from '../models/notification-settings.model';
 
-export const getNotificationSettings = async (userId: string): Promise<NotificationSettingResponseDto> => {
-    const settings = await notificationSettingRepository.findByUserId(userId);
-    
+export const getNotificationSettings = async (userId: string) => {
+    let settings = await NotificationSettings.findOne({ where: { userId } });
+
     if (!settings) {
-        return {
+        settings = await NotificationSettings.create({
+            userId,
             notifyAssignedTicket: true,
             notifyReportedTicket: true,
             notifyTicketApproved: true,
             notifyTicketRejected: true
-        };
+        });
     }
-    
+
     return settings;
 };
 
-export const updateNotificationSettings = async (userId: string, settingsData: UpdateNotificationSettingsDto): Promise<NotificationSettingResponseDto> => {
-    const updatedSettings = await notificationSettingRepository.createOrUpdate(userId, settingsData);
-    return updatedSettings;
+export const updateNotificationSettings = async (userId: string, updates: Partial<NotificationSettings>) => {
+    const settings = await getNotificationSettings(userId);
+    await settings.update(updates);
+    return settings;
 };

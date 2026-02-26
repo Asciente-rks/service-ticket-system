@@ -32,7 +32,8 @@
     "jsonwebtoken": "^9.0.2",
     "mysql2": "^3.9.7",
     "node-cron": "^3.0.3",
-    "sequelize": "^6.37.3"
+    "sequelize": "^6.37.3",
+    "yup": "^1.7.1"
   },
   "overrides": {
     "minimatch": "^10.2.1"

@@ -7,8 +7,6 @@ export interface UserAttributes {
   name: string;
   email: string;
   password: string;
-  resetToken?: string | null;
-  resetTokenExpiry?: Date | null;
   createdAt?: Date;
   updatedAt?: Date;
   
@@ -22,8 +20,6 @@ export class User extends Model<UserAttributes, UserCreationAttributes> implemen
   declare name: string;
   declare email: string;
   declare password: string;
-  declare resetToken: string | null;
-  declare resetTokenExpiry: Date | null;
   declare readonly createdAt: Date;
   declare readonly updatedAt: Date;
 }

@@ -6,10 +6,11 @@ import * as ticketRepository from '../repositories/ticket.repository';
 import { Role } from '../../users/models/role.model';
 import * as notificationService from '../../notifications/services/notification.service';
 import * as notificationSettingService from '../../users/services/notification-setting.service';
+import { User } from '../../users/models/user.model';
 
 const VALID_PRIORITIES = ['Low', 'Medium', 'High'];
 
-export const createTicket = async (ticketData: CreateTicketDto, reporterId: string): Promise<TicketResponseDto> => {
+export const createTicket = async (ticketData: CreateTicketDto, reporterId: string, reporterRoleId: string): Promise<TicketResponseDto> => {
     if (!VALID_PRIORITIES.includes(ticketData.priority)) {
         throw new Error(`Invalid priority. Allowed values: ${VALID_PRIORITIES.join(', ')}`);
     }
@@ -18,6 +19,17 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
     
     if (!openStatus) {
         throw new Error('Default ticket status "Open" not found. Please run the seed script.');
+    }
+
+    if (ticketData.assigneeId) {
+        const assignee = await User.findByPk(ticketData.assigneeId);
+        if (assignee) {
+            const assigneeRole = await Role.findByPk(assignee.roleId);
+            const reporterRole = await Role.findByPk(reporterRoleId);
+            if (reporterRole?.name === 'Tester' && assigneeRole?.name === 'Admin') {
+                throw new Error('Testers are not allowed to assign tickets to Admins.');
+            }
+        }
     }
 
     const ticket = await ticketRepository.create({
@@ -85,27 +97,32 @@ export const updateTicket = async (id: string, updates: UpdateTicketDto, userId:
         delete updatesAny.status;
     }
 
-    if (updates.statusId) {
-        const targetStatus = await TicketStatus.findByPk(updates.statusId);
-        if (targetStatus) {
-            if (role.name === 'Tester') {
-                const allowedStatuses = ['New', 'In Testing', 'Done', 'Reopened', 'Open', 'Resolved']; // Including seed defaults for compatibility
-                if (!allowedStatuses.includes(targetStatus.name)) {
-                    throw new Error(`Tester cannot change status to "${targetStatus.name}". Allowed: ${allowedStatuses.join(', ')}`);
-                }
-            } else if (role.name === 'Developer') {
-                const allowedStatuses = ['In Progress', 'Ready for QA', 'Reopened'];
-                if (!allowedStatuses.includes(targetStatus.name)) {
-                    throw new Error(`Developer cannot change status to "${targetStatus.name}". Allowed: ${allowedStatuses.join(', ')}`);
-                }
-            }
-        }
-    }
-
     await ticketRepository.update(id, updates);
     
     const updatedTicket = await ticketRepository.findById(id);
     if (!updatedTicket) return null;
+
+    // If the assignee has changed, notify the new assignee
+    if (updates.assigneeId && ticket.assignedTo !== updates.assigneeId) {
+        const newAssigneeId = updates.assigneeId;
+        if (newAssigneeId) { // A new user was assigned (not just unassigned)
+            const assignee = await User.findByPk(newAssigneeId);
+            if (assignee) {
+                const assigneeRole = await Role.findByPk(assignee.roleId);
+                if (role.name === 'Tester' && assigneeRole?.name === 'Admin') {
+                    throw new Error('Testers are not allowed to assign tickets to Admins.');
+                }
+            }
+            const settings = await notificationSettingService.getNotificationSettings(newAssigneeId);
+            if (settings.notifyAssignedTicket) {
+                await notificationService.createNotification({
+                    userId: newAssigneeId,
+                    ticketId: ticket.id,
+                    message: `You have been assigned a ticket: ${ticket.title}`
+                });
+            }
+        }
+    }
 
     if (updates.statusId && ticket.statusId !== updates.statusId) {
         const statusName = (updatedTicket as any).status.name;

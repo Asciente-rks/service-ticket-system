@@ -5,10 +5,10 @@ import { TicketStatus } from '../models/ticket-status.model';
 import * as notificationService from '../../notifications/services/notification.service';
 
 export const initCronJobs = () => {
-    cron.schedule('* * * * *', async () => {
+    cron.schedule('0 9 * * *', async () => {
         console.log('Running Stale Ticket Checker Job...');
         
-        const staleThreshold = new Date(Date.now() - 5 * 60 * 1000);
+        const staleThreshold = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
         try {
             const staleTickets = await Ticket.findAll({
@@ -29,7 +29,7 @@ export const initCronJobs = () => {
                     await notificationService.createNotification({
                         userId: ticket.assignedTo!,
                         ticketId: ticket.id,
-                        message: `Reminder: High priority ticket "${ticket.title}" has not been updated in 24 hours.`
+                        message: `Reminder: High priority ticket "${ticket.title}" has not been updated for 24 hours.`
                     });
                 }
             }

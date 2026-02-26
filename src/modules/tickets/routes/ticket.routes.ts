@@ -6,11 +6,18 @@ import { updateTicket } from '../controllers/update-ticket.controller';
 import { addApproval } from '../controllers/approval.controller';
 import { authenticateToken } from '../../../middlewares/auth.middleware';
 import { authorizeRoles } from '../../../middlewares/permissions.middleware';
+import { validate } from '../../../middlewares/validator.middleware';
+import {
+    createTicketSchema,
+    ticketIdParamsSchema,
+    updateTicketSchema,
+    createApprovalSchema
+} from '../../../utils/ticket.validation';
 
 export const ticketRouter = Router();
 
-ticketRouter.post('/', authenticateToken, authorizeRoles(['Admin', 'Tester']), createTicket);
+ticketRouter.post('/', authenticateToken, authorizeRoles(['SuperAdmin', 'Admin', 'Tester']), validate(createTicketSchema), createTicket);
 ticketRouter.get('/', authenticateToken, listTickets);
-ticketRouter.get('/:id', authenticateToken, getTicket);
-ticketRouter.patch('/:id', authenticateToken, authorizeRoles(['Admin', 'Tester', 'Developer']), updateTicket);
-ticketRouter.post('/:id/approval', authenticateToken, authorizeRoles(['Admin']), addApproval);
+ticketRouter.get('/:id', authenticateToken, validate(ticketIdParamsSchema), getTicket);
+ticketRouter.patch('/:id', authenticateToken, validate(updateTicketSchema), updateTicket);
+ticketRouter.post('/:id/approval', authenticateToken, authorizeRoles(['SuperAdmin', 'Admin']), validate(createApprovalSchema), addApproval);
