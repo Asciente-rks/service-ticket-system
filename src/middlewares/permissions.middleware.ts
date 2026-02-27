@@ -1,15 +1,13 @@
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from './auth.middleware';
-import { Role } from '../modules/users/models/role.model';
-import { User } from '../modules/users/models/user.model';
+import * as userRepository from '../modules/users/repositories/user.repository';
+import * as roleRepository from '../modules/users/repositories/role.repository';
 
 export const isAdmin = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
 
-        const userRole = await Role.findByPk(req.user.roleId);
-        
-        if (!userRole || (userRole.name !== 'Admin' && userRole.name !== 'SuperAdmin')) {
+        if (req.user.role !== 'Admin' && req.user.role !== 'SuperAdmin') {
             return res.status(403).json({ message: 'Require Admin or SuperAdmin Role' });
         }
         next();
@@ -27,8 +25,7 @@ export const isOwnerOrAdmin = async (req: AuthRequest, res: Response, next: Next
         if (req.user.id === userIdToCheck) {
             return next();
         }
-        const userRole = await Role.findByPk(req.user.roleId);
-        if (userRole && (userRole.name === 'Admin' || userRole.name === 'SuperAdmin')) {
+        if (req.user.role === 'Admin' || req.user.role === 'SuperAdmin') {
             return next();
         }
         return res.status(403).json({ message: 'Not authorized to perform this action' });
@@ -41,13 +38,12 @@ export const authorizeRoles = (allowedRoles: string[]) => {
     return async (req: AuthRequest, res: Response, next: NextFunction) => {
         try {
             if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-            const userRole = await Role.findByPk(req.user.roleId);
 
-            if (userRole && userRole.name === 'SuperAdmin') {
+            if (req.user.role === 'SuperAdmin') {
                 return next();
             }
 
-            if (!userRole || !allowedRoles.includes(userRole.name)) {
+            if (!allowedRoles.includes(req.user.role)) {
                 return res.status(403).json({ message: 'Forbidden: Insufficient permissions' });
             }
             next();
@@ -68,18 +64,15 @@ export const checkUserHierarchy = async (req: AuthRequest, res: Response, next: 
             return next();
         }
 
-        const actorRole = await Role.findByPk(req.user.roleId);
-        if (!actorRole) return res.status(403).json({ message: 'Role not found' });
-
-        if (actorRole.name === 'SuperAdmin') {
+        if (req.user.role === 'SuperAdmin') {
             return next();
         }
 
-        if (actorRole.name === 'Admin') {
-            const targetUser = await User.findByPk(targetUserId);
+        if (req.user.role === 'Admin') {
+            const targetUser = await userRepository.findById(targetUserId);
             if (!targetUser) return res.status(404).json({ message: 'User not found' });
 
-            const targetRole = await Role.findByPk(targetUser.roleId);
+            const targetRole = await roleRepository.findById(targetUser.roleId);
             if (targetRole && (targetRole.name === 'Admin' || targetRole.name === 'SuperAdmin')) {
                 return res.status(403).json({ message: 'Admins cannot modify other Admins or SuperAdmins' });
             }

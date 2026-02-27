@@ -14,7 +14,7 @@ export interface TicketResponseDto {
   assignee: TicketUser | null;
   reviewedBy: string | null;
   approvalStatus: string | null;
-  approvalComment: string | null;
+  comment: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

@@ -1,12 +1,12 @@
-import { TicketStatus } from '../models/ticket-status.model';
 import { CreateTicketDto } from '../dtos/create-ticket.dto';
 import { TicketResponseDto } from '../dtos/ticket-response.dto';
 import { UpdateTicketDto } from '../dtos/update-ticket.dto';
 import * as ticketRepository from '../repositories/ticket.repository';
-import { Role } from '../../users/models/role.model';
+import * as ticketStatusRepository from '../repositories/ticket-status.repository';
+import * as roleRepository from '../../users/repositories/role.repository';
+import * as userRepository from '../../users/repositories/user.repository';
 import * as notificationService from '../../notifications/services/notification.service';
 import * as notificationSettingService from '../../users/services/notification-setting.service';
-import { User } from '../../users/models/user.model';
 
 const VALID_PRIORITIES = ['Low', 'Medium', 'High'];
 
@@ -15,19 +15,38 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
         throw new Error(`Invalid priority. Allowed values: ${VALID_PRIORITIES.join(', ')}`);
     }
 
-    const openStatus = await TicketStatus.findOne({ where: { name: 'Open' } });
+    const openStatus = await ticketStatusRepository.findByName('Open');
     
     if (!openStatus) {
         throw new Error('Default ticket status "Open" not found. Please run the seed script.');
     }
 
     if (ticketData.assigneeId) {
-        const assignee = await User.findByPk(ticketData.assigneeId);
-        if (assignee) {
-            const assigneeRole = await Role.findByPk(assignee.roleId);
-            const reporterRole = await Role.findByPk(reporterRoleId);
-            if (reporterRole?.name === 'Tester' && assigneeRole?.name === 'Admin') {
-                throw new Error('Testers are not allowed to assign tickets to Admins.');
+        const assignee = await userRepository.findById(ticketData.assigneeId);
+        if (assignee && assignee.id !== reporterId) {
+            const actorRole = await roleRepository.findById(reporterRoleId);
+            const assigneeRole = await roleRepository.findById(assignee.roleId);
+
+            if (!actorRole || !assigneeRole) {
+                throw new Error('Role information not found for validation.');
+            }
+
+            if (assigneeRole.name === 'SuperAdmin') {
+                throw new Error('Tickets cannot be assigned to SuperAdmins.');
+            }
+
+            if (actorRole.name === 'Admin') {
+                if (!['Developer', 'Tester'].includes(assigneeRole.name)) {
+                    throw new Error('Admins can only assign tickets to Developers and Testers.');
+                }
+            } else if (actorRole.name === 'Tester') {
+                if (!['Developer', 'Tester'].includes(assigneeRole.name)) {
+                    throw new Error('Testers can only assign tickets to Developers and fellow Testers.');
+                }
+            } else if (actorRole.name === 'Developer') {
+                if (assigneeRole.name !== 'Tester') {
+                    throw new Error('Developers can only assign tickets to Testers.');
+                }
             }
         }
     }
@@ -58,7 +77,7 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
 }
 
 export const getAllTickets = async (userId: string, roleId: string): Promise<TicketResponseDto[]> => {
-    const role = await Role.findByPk(roleId);
+    const role = await roleRepository.findById(roleId);
     if (!role) throw new Error('Role not found');
 
     const whereClause = {};
@@ -80,7 +99,7 @@ export const updateTicket = async (id: string, updates: UpdateTicketDto, userId:
     const ticket = await ticketRepository.findById(id);
     if (!ticket) return null;
     
-    const role = await Role.findByPk(roleId);
+    const role = await roleRepository.findById(roleId);
     if (!role) throw new Error('Role not found');
 
     if (updates.priority && !VALID_PRIORITIES.includes(updates.priority)) {
@@ -89,26 +108,51 @@ export const updateTicket = async (id: string, updates: UpdateTicketDto, userId:
 
     const updatesAny = updates as any;
     if (updatesAny.status) {
-        const statusEntity = await TicketStatus.findOne({ where: { name: updatesAny.status } });
+        const statusEntity = await ticketStatusRepository.findByName(updatesAny.status);
         if (!statusEntity) {
             throw new Error(`Status "${updatesAny.status}" not found`);
         }
+
+        if (statusEntity.name === 'In Progress') {
+            updates.assigneeId = userId;
+        } else if (statusEntity.name === 'Ready for QA') {
+            updates.assigneeId = ticket.reportedBy;
+        }
+
         updates.statusId = statusEntity.id;
         delete updatesAny.status;
     }
 
-    await ticketRepository.update(id, updates);
-    
-    const updatedTicket = await ticketRepository.findById(id);
-    if (!updatedTicket) return null;
     if (updates.assigneeId && ticket.assignedTo !== updates.assigneeId) {
         const newAssigneeId = updates.assigneeId;
         if (newAssigneeId) { 
-            const assignee = await User.findByPk(newAssigneeId);
-            if (assignee) {
-                const assigneeRole = await Role.findByPk(assignee.roleId);
-                if (role.name === 'Tester' && assigneeRole?.name === 'Admin') {
-                    throw new Error('Testers are not allowed to assign tickets to Admins.');
+            const assignee = await userRepository.findById(newAssigneeId);
+            if (!assignee) {
+                throw new Error('Assignee user not found');
+            }
+            if (newAssigneeId !== userId) {
+                const assigneeRole = await roleRepository.findById(assignee.roleId);
+
+                if (!role || !assigneeRole) {
+                    throw new Error('Role information not found for validation.');
+                }
+
+                if (assigneeRole.name === 'SuperAdmin') {
+                    throw new Error('Tickets cannot be assigned to SuperAdmins.');
+                }
+
+                if (role.name === 'Admin') {
+                    if (!['Developer', 'Tester'].includes(assigneeRole.name)) {
+                        throw new Error('Admins can only assign tickets to Developers and Testers.');
+                    }
+                } else if (role.name === 'Tester') {
+                    if (!['Developer', 'Tester'].includes(assigneeRole.name)) {
+                        throw new Error('Testers can only assign tickets to Developers and fellow Testers.');
+                    }
+                } else if (role.name === 'Developer') {
+                    if (assigneeRole.name !== 'Tester') {
+                        throw new Error('Developers can only assign tickets to Testers.');
+                    }
                 }
             }
             const settings = await notificationSettingService.getNotificationSettings(newAssigneeId);
@@ -122,12 +166,23 @@ export const updateTicket = async (id: string, updates: UpdateTicketDto, userId:
         }
     }
 
+    const updateData: any = { ...updates };
+    if (updateData.assigneeId !== undefined) {
+        updateData.assignedTo = updateData.assigneeId;
+        delete updateData.assigneeId;
+    }
+
+    await ticketRepository.update(id, updateData);
+    
+    const updatedTicket = await ticketRepository.findById(id);
+    if (!updatedTicket) return null;
+
     if (updates.statusId && ticket.statusId !== updates.statusId) {
         const statusName = (updatedTicket as any).status.name;
-        
+
         if (ticket.reportedBy !== userId) {
-            const reporterSettings = await notificationSettingService.getNotificationSettings(ticket.reportedBy);
-            if (reporterSettings.notifyReportedTicket) {
+            const settings = await notificationSettingService.getNotificationSettings(ticket.reportedBy);
+            if (settings.notifyReportedTicket) {
                 await notificationService.createNotification({
                     userId: ticket.reportedBy,
                     ticketId: ticket.id,
@@ -137,8 +192,8 @@ export const updateTicket = async (id: string, updates: UpdateTicketDto, userId:
         }
 
         if (ticket.assignedTo && ticket.assignedTo !== userId) {
-            const assigneeSettings = await notificationSettingService.getNotificationSettings(ticket.assignedTo);
-            if (assigneeSettings.notifyReportedTicket) {
+            const settings = await notificationSettingService.getNotificationSettings(ticket.assignedTo);
+            if (settings.notifyAssignedTicket) {
                 await notificationService.createNotification({
                     userId: ticket.assignedTo,
                     ticketId: ticket.id,
@@ -183,7 +238,7 @@ const toTicketResponseDto = (ticket: any): TicketResponseDto => {
         } : null,
         reviewedBy,
         approvalStatus,
-        approvalComment,
+        comment: approvalComment,
         createdAt: ticket.createdAt,
         updatedAt: ticket.updatedAt
     };

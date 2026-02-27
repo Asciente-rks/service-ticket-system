@@ -12,7 +12,11 @@ export const updateTicket = async (req: AuthRequest, res: Response) => {
         }
         res.status(200).json(updatedTicket);
     } catch (error: any) {
-        if (error.message.includes('Testers are not allowed to assign tickets to Admins')) {
+        if (
+            error.message.includes('assign') ||
+            error.message.includes('Invalid priority') ||
+            error.message.includes('not found')
+        ) {
             return res.status(400).json({ message: error.message });
         }
         res.status(500).json({ message: 'Error updating ticket', error: error.message });

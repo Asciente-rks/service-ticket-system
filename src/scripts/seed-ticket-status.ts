@@ -1,5 +1,5 @@
 import { sequelize } from '../config/db';
-import { TicketStatus } from '../modules/tickets/models/ticket-status.model';
+import * as ticketStatusRepository from '../modules/tickets/repositories/ticket-status.repository';
 
 const seedTicketStatuses = async () => {
   try {
@@ -7,14 +7,15 @@ const seedTicketStatuses = async () => {
     console.log('Database connected.');
     await sequelize.sync(); 
 
-    const statuses = ['New', 'Open', 'In Progress', 'Ready for QA', 'In Testing', 'Done', 'Reopened', 'Resolved', 'Closed'];
+    const statuses = ['Open', 'In Progress', 'Ready for QA', 'Error Persists', 'Resolved', 'Closed'];
+    const oldStatuses = ['New', 'In Testing', 'Done', 'Reopened'];
+
+    const deletedCount = await ticketStatusRepository.deleteByNames(oldStatuses);
+    if (deletedCount > 0) console.log(`Removed ${deletedCount} old status(es).`);
 
     console.log('--- TICKET STATUSES ---');
     for (const statusName of statuses) {
-      const [status] = await TicketStatus.findOrCreate({
-        where: { name: statusName },
-        defaults: { name: statusName }
-      });
+      const [status] = await ticketStatusRepository.findOrCreate(statusName);
       console.log(`${statusName}: ${status.id}`);
     }
     console.log('-----------------------');

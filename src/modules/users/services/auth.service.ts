@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { UserResponseDto } from '../dtos/user-response.dto';
 import * as userRepository from '../repositories/user.repository';
+import * as roleRepository from '../repositories/role.repository';
 
 export const login = async (email: string, password: string) => {
     const user = await userRepository.findByEmail(email);
@@ -16,7 +17,10 @@ export const login = async (email: string, password: string) => {
         return{ user: null, token: null };
     }
 
-    const token = jwt.sign({ id: user.id, roleId: user.roleId, email: user.email }, process.env.JWT_SECRET!, { expiresIn: '1h' });
+    const role = await roleRepository.findById(user.roleId);
+    const roleName = role ? role.name : '';
+
+    const token = jwt.sign({ id: user.id, roleId: user.roleId, email: user.email, role: roleName }, process.env.JWT_SECRET!, { expiresIn: '1h' });
     const userResponse: UserResponseDto = { id: user.id.toString(), roleId: user.roleId, name: user.name, email: user.email };
     return { user: userResponse, token };
 } 

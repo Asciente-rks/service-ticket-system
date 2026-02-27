@@ -3,10 +3,12 @@ import * as userService from '../services/user.service';
 import { CreateUserDto } from '../dtos/create-user.dto';
 import { UserResponseDto } from '../dtos/user-response.dto';
 import { UniqueConstraintError, ValidationError } from 'sequelize';
+import { AuthRequest } from '../../../middlewares/auth.middleware';
 
-export const createUser = async (req: Request, res: Response) => {
+export const createUser = async (req: AuthRequest, res: Response) => {
   try {
-    const user = await userService.createUser(req.body as CreateUserDto);
+    if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+    const user = await userService.createUser(req.body as CreateUserDto, req.user.roleId);
     res.status(201).json(user as UserResponseDto);
   } catch (error: any) {
     if (error instanceof UniqueConstraintError) {

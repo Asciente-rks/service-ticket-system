@@ -1,11 +1,11 @@
 import { NotificationSettings } from '../models/notification-settings.model';
+import * as notificationSettingRepository from '../repositories/notification-setting.repository';
 
 export const getNotificationSettings = async (userId: string) => {
-    let settings = await NotificationSettings.findOne({ where: { userId } });
+    let settings = await notificationSettingRepository.findByUserId(userId);
 
     if (!settings) {
-        settings = await NotificationSettings.create({
-            userId,
+        settings = await notificationSettingRepository.createOrUpdate(userId, {
             notifyAssignedTicket: true,
             notifyReportedTicket: true,
             notifyTicketApproved: true,
@@ -17,7 +17,5 @@ export const getNotificationSettings = async (userId: string) => {
 };
 
 export const updateNotificationSettings = async (userId: string, updates: Partial<NotificationSettings>) => {
-    const settings = await getNotificationSettings(userId);
-    await settings.update(updates);
-    return settings;
+    return await notificationSettingRepository.createOrUpdate(userId, updates);
 };

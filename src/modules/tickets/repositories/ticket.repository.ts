@@ -48,7 +48,7 @@ export const findById = async (id: string) => {
     });
 };
 
-export const update = async (id: string, updates: UpdateTicketDto) => {
+export const update = async (id: string, updates: any) => {
     const ticket = await Ticket.findByPk(id);
     if (!ticket) return null;
     return await ticket.update(updates);
