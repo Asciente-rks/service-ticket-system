@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import { AuthRequest } from './auth.middleware';
 import * as userRepository from '../modules/users/repositories/user.repository';
 import * as roleRepository from '../modules/users/repositories/role.repository';
+import { Role } from '../modules/users/models/role.model';
 
 export const isAdmin = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
@@ -21,8 +22,7 @@ export const isOwnerOrAdmin = async (req: AuthRequest, res: Response, next: Next
         if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
 
         const userIdToCheck = req.params.id;
-
-        if (req.user.id === userIdToCheck) {
+        if (req.user.id == userIdToCheck) {
             return next();
         }
         if (req.user.role === 'Admin' || req.user.role === 'SuperAdmin') {
@@ -59,8 +59,7 @@ export const checkUserHierarchy = async (req: AuthRequest, res: Response, next: 
 
         const targetUserId = req.params.id;
         const actorId = req.user.id;
-
-        if (targetUserId === actorId) {
+        if (targetUserId == actorId) {
             return next();
         }
 
@@ -69,10 +68,12 @@ export const checkUserHierarchy = async (req: AuthRequest, res: Response, next: 
         }
 
         if (req.user.role === 'Admin') {
-            const targetUser = await userRepository.findById(targetUserId);
+            const targetUser = await userRepository.findById(targetUserId, {
+                include: [{ model: Role, as: 'role' }]
+            });
             if (!targetUser) return res.status(404).json({ message: 'User not found' });
 
-            const targetRole = await roleRepository.findById(targetUser.roleId);
+            const targetRole = (targetUser as any).role;
             if (targetRole && (targetRole.name === 'Admin' || targetRole.name === 'SuperAdmin')) {
                 return res.status(403).json({ message: 'Admins cannot modify other Admins or SuperAdmins' });
             }

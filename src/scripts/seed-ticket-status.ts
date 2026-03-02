@@ -1,11 +1,9 @@
-import { sequelize } from '../config/db';
+import { sequelize, connectDB } from '../config/db';
 import * as ticketStatusRepository from '../modules/tickets/repositories/ticket-status.repository';
 
 const seedTicketStatuses = async () => {
   try {
-    await sequelize.authenticate();
-    console.log('Database connected.');
-    await sequelize.sync(); 
+    await connectDB();
 
     const statuses = ['Open', 'In Progress', 'Ready for QA', 'Error Persists', 'Resolved', 'Closed'];
     const oldStatuses = ['New', 'In Testing', 'Done', 'Reopened'];

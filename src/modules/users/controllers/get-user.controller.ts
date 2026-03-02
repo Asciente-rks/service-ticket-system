@@ -1,10 +1,11 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
+import { AuthRequest } from '../../../middlewares/auth.middleware';
 import * as userService from '../services/user.service';
 import { UserResponseDto } from '../dtos/user-response.dto';
 
-export const getUser = async (req: Request, res: Response) => {
+export const getUser = async (req: AuthRequest, res: Response) => {
     try {
-        const user = await userService.getUserById(req.params.id);
+        const user = await userService.getUserById(req.params.id, req.user?.role, req.user?.id);
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }

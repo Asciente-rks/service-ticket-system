@@ -24,13 +24,13 @@ export const createUser = async (userData: CreateUserDto, creatorRoleId: string)
     return toUserResponseDto(user);
 }
 
-export const getAllUsers = async (): Promise<UserResponseDto[]> => {
+export const getAllUsers = async (requestingUserRole?: string): Promise<UserResponseDto[]> => {
   try {
     const users = await userRepository.findAll();
     
     const superAdminRole = await roleRepository.findByName('SuperAdmin');
-    const filteredUsers = superAdminRole 
-        ? users.filter(user => user.roleId !== superAdminRole.id)
+    const filteredUsers = (superAdminRole && requestingUserRole !== 'SuperAdmin')
+        ? users.filter(user => user.roleId != superAdminRole.id)
         : users;
 
     return filteredUsers.map(user => toUserResponseDto(user));
@@ -39,15 +39,20 @@ export const getAllUsers = async (): Promise<UserResponseDto[]> => {
   }
 };
 
-export const getUserById = async (id: string): Promise<UserResponseDto | null> => {
+export const getUserById = async (id: string, requestingUserRole?: string, requestingUserId?: string): Promise<UserResponseDto | null> => {
   try {
     const user = await userRepository.findById(id);
     if (!user) {
       return null;
     }
 
+    if (requestingUserId && user.id == requestingUserId) {
+        return toUserResponseDto(user);
+    }
+
     const superAdminRole = await roleRepository.findByName('SuperAdmin');
-    if (superAdminRole && user.roleId === superAdminRole.id) {
+
+    if (superAdminRole && user.roleId == superAdminRole.id && requestingUserRole !== 'SuperAdmin') {
         return null;
     }
 

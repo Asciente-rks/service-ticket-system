@@ -9,8 +9,8 @@ export const findAll = async () => {
     return await User.findAll();
 };
 
-export const findById = async (id: string) => {
-    return await User.findByPk(id);
+export const findById = async (id: string, options: any = {}) => {
+    return await User.findByPk(id, options);
 };
 
 export const findByEmail = async (email: string) => {

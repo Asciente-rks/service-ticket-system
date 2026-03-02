@@ -1,10 +1,13 @@
-import { sequelize } from '../config/db';
+import { sequelize, connectDB } from '../config/db';
 import { defineAssociations } from '../associations/associations';
 
 const syncDatabase = async () => {
   try {
-    await sequelize.authenticate();
-    console.log('Database connected.');
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('UNSAFE OPERATION: Running sync({ alter: true }) in production is not allowed. Use migrations instead.');
+    }
+
+    await connectDB();
 
     defineAssociations();
 
