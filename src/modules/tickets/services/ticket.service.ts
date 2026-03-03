@@ -3,10 +3,11 @@ import { TicketResponseDto } from '../dtos/ticket-response.dto';
 import { UpdateTicketDto } from '../dtos/update-ticket.dto';
 import * as ticketRepository from '../repositories/ticket.repository';
 import * as ticketStatusRepository from '../repositories/ticket-status.repository';
-import * as roleRepository from '../../users/repositories/role.repository';
 import * as userRepository from '../../users/repositories/user.repository';
 import * as notificationService from '../../notifications/services/notification.service';
 import * as notificationSettingService from '../../users/services/notification-setting.service';
+import { ROLES } from '../../../config/roles';
+import { STATUSES } from '../../../config/statuses';
 
 const VALID_PRIORITIES = ['Low', 'Medium', 'High'];
 
@@ -14,7 +15,7 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
     if (!VALID_PRIORITIES.includes(ticketData.priority)) {
         throw new Error(`Invalid priority. Allowed values: ${VALID_PRIORITIES.join(', ')}`);
     }
-
+    
     const openStatus = await ticketStatusRepository.findByName('Open');
     
     if (!openStatus) {
@@ -24,27 +25,20 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
     if (ticketData.assigneeId) {
         const assignee = await userRepository.findById(ticketData.assigneeId);
         if (assignee && assignee.id !== reporterId) {
-            const actorRole = await roleRepository.findById(reporterRoleId);
-            const assigneeRole = await roleRepository.findById(assignee.roleId);
-
-            if (!actorRole || !assigneeRole) {
-                throw new Error('Role information not found for validation.');
-            }
-
-            if (assigneeRole.name === 'SuperAdmin') {
+            if (assignee.roleId === ROLES.SUPER_ADMIN) {
                 throw new Error('Tickets cannot be assigned to SuperAdmins.');
             }
 
-            if (actorRole.name === 'Admin') {
-                if (!['Developer', 'Tester'].includes(assigneeRole.name)) {
+            if (reporterRoleId === ROLES.ADMIN) {
+                if (![ROLES.DEVELOPER, ROLES.TESTER].includes(assignee.roleId)) {
                     throw new Error('Admins can only assign tickets to Developers and Testers.');
                 }
-            } else if (actorRole.name === 'Tester') {
-                if (!['Developer', 'Tester'].includes(assigneeRole.name)) {
+            } else if (reporterRoleId === ROLES.TESTER) {
+                if (![ROLES.DEVELOPER, ROLES.TESTER].includes(assignee.roleId)) {
                     throw new Error('Testers can only assign tickets to Developers and fellow Testers.');
                 }
-            } else if (actorRole.name === 'Developer') {
-                if (assigneeRole.name !== 'Tester') {
+            } else if (reporterRoleId === ROLES.DEVELOPER) {
+                if (assignee.roleId !== ROLES.TESTER) {
                     throw new Error('Developers can only assign tickets to Testers.');
                 }
             }
@@ -57,7 +51,7 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
         priority: ticketData.priority,
         reportedBy: reporterId,
         assignedTo: ticketData.assigneeId || null,
-        statusId: openStatus.id
+        statusId: STATUSES.OPEN
     });
 
     const createdTicket = await getTicketById(ticket.id);
@@ -77,9 +71,6 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
 }
 
 export const getAllTickets = async (userId: string, roleId: string): Promise<TicketResponseDto[]> => {
-    const role = await roleRepository.findById(roleId);
-    if (!role) throw new Error('Role not found');
-
     const whereClause = {};
 
     const tickets = await ticketRepository.findAll(whereClause);
@@ -98,9 +89,6 @@ export const getTicketById = async (id: string): Promise<TicketResponseDto | nul
 export const updateTicket = async (id: string, updates: UpdateTicketDto, userId: string, roleId: string): Promise<TicketResponseDto | null> => {
     const ticket = await ticketRepository.findById(id);
     if (!ticket) return null;
-    
-    const role = await roleRepository.findById(roleId);
-    if (!role) throw new Error('Role not found');
 
     if (updates.priority && !VALID_PRIORITIES.includes(updates.priority)) {
         throw new Error(`Invalid priority. Allowed values: ${VALID_PRIORITIES.join(', ')}`);
@@ -112,9 +100,9 @@ export const updateTicket = async (id: string, updates: UpdateTicketDto, userId:
         if (!statusEntity) {
             throw new Error(`Status "${updatesAny.status}" not found`);
         }
-
+        
         if (statusEntity.name === 'In Progress') {
-            updates.assigneeId = userId;
+             updates.assigneeId = userId;
         } else if (statusEntity.name === 'Ready for QA') {
             updates.assigneeId = ticket.reportedBy;
         }
@@ -131,26 +119,20 @@ export const updateTicket = async (id: string, updates: UpdateTicketDto, userId:
                 throw new Error('Assignee user not found');
             }
             if (newAssigneeId !== userId) {
-                const assigneeRole = await roleRepository.findById(assignee.roleId);
-
-                if (!role || !assigneeRole) {
-                    throw new Error('Role information not found for validation.');
-                }
-
-                if (assigneeRole.name === 'SuperAdmin') {
+                if (assignee.roleId === ROLES.SUPER_ADMIN) {
                     throw new Error('Tickets cannot be assigned to SuperAdmins.');
                 }
 
-                if (role.name === 'Admin') {
-                    if (!['Developer', 'Tester'].includes(assigneeRole.name)) {
+                if (roleId === ROLES.ADMIN) {
+                    if (![ROLES.DEVELOPER, ROLES.TESTER].includes(assignee.roleId)) {
                         throw new Error('Admins can only assign tickets to Developers and Testers.');
                     }
-                } else if (role.name === 'Tester') {
-                    if (!['Developer', 'Tester'].includes(assigneeRole.name)) {
+                } else if (roleId === ROLES.TESTER) {
+                    if (![ROLES.DEVELOPER, ROLES.TESTER].includes(assignee.roleId)) {
                         throw new Error('Testers can only assign tickets to Developers and fellow Testers.');
                     }
-                } else if (role.name === 'Developer') {
-                    if (assigneeRole.name !== 'Tester') {
+                } else if (roleId === ROLES.DEVELOPER) {
+                    if (assignee.roleId !== ROLES.TESTER) {
                         throw new Error('Developers can only assign tickets to Testers.');
                     }
                 }

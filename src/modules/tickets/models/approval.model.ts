@@ -1,4 +1,4 @@
-import { DataTypes, Model } from 'sequelize';
+import { DataTypes, Model, Optional } from 'sequelize';
 import { sequelize } from '../../../config/db';
 
 export interface ApprovalAttributes {
@@ -12,7 +12,7 @@ export interface ApprovalAttributes {
     updatedAt?: Date;
 }
 
-export interface ApprovalCreationAttributes extends Omit<ApprovalAttributes, 'id' | 'createdAt' | 'updatedAt'> {}
+export interface ApprovalCreationAttributes extends Optional<ApprovalAttributes, 'id' | 'createdAt' | 'updatedAt'> {}
 
 export class Approval extends Model<ApprovalAttributes, ApprovalCreationAttributes> implements ApprovalAttributes {
     declare id: string;

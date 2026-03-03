@@ -1,4 +1,4 @@
-import { DataTypes, Model } from 'sequelize';
+import { DataTypes, Model, Optional } from 'sequelize';
 import { sequelize } from '../../../config/db';
 
 export interface RoleAttributes {
@@ -8,7 +8,7 @@ export interface RoleAttributes {
   updatedAt?: Date;
 }
 
-export interface RoleCreationAttributes extends Omit<RoleAttributes, 'id' | 'createdAt' | 'updatedAt'> {}
+export interface RoleCreationAttributes extends Optional<RoleAttributes, 'id' | 'createdAt' | 'updatedAt'> {}
 
 export class Role extends Model<RoleAttributes, RoleCreationAttributes> implements RoleAttributes {
   declare id: string;

@@ -1,14 +1,14 @@
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from './auth.middleware';
 import * as userRepository from '../modules/users/repositories/user.repository';
-import * as roleRepository from '../modules/users/repositories/role.repository';
-import { Role } from '../modules/users/models/role.model';
+import { ROLES } from '../config/roles';
 
 export const isAdmin = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
 
-        if (req.user.role !== 'Admin' && req.user.role !== 'SuperAdmin') {
+        const allowedAdminIds = [ROLES.ADMIN, ROLES.SUPER_ADMIN];
+        if (!allowedAdminIds.includes(req.user.roleId)) {
             return res.status(403).json({ message: 'Require Admin or SuperAdmin Role' });
         }
         next();
@@ -25,7 +25,8 @@ export const isOwnerOrAdmin = async (req: AuthRequest, res: Response, next: Next
         if (req.user.id == userIdToCheck) {
             return next();
         }
-        if (req.user.role === 'Admin' || req.user.role === 'SuperAdmin') {
+        const allowedAdminIds = [ROLES.ADMIN, ROLES.SUPER_ADMIN];
+        if (allowedAdminIds.includes(req.user.roleId)) {
             return next();
         }
         return res.status(403).json({ message: 'Not authorized to perform this action' });
@@ -34,16 +35,16 @@ export const isOwnerOrAdmin = async (req: AuthRequest, res: Response, next: Next
     }
 };
 
-export const authorizeRoles = (allowedRoles: string[]) => {
+export const authorizeRoles = (allowedRoleIds: string[]) => {
     return async (req: AuthRequest, res: Response, next: NextFunction) => {
         try {
             if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
 
-            if (req.user.role === 'SuperAdmin') {
+            if (req.user.roleId === ROLES.SUPER_ADMIN) {
                 return next();
             }
 
-            if (!allowedRoles.includes(req.user.role)) {
+            if (!allowedRoleIds.includes(req.user.roleId)) {
                 return res.status(403).json({ message: 'Forbidden: Insufficient permissions' });
             }
             next();
@@ -63,18 +64,15 @@ export const checkUserHierarchy = async (req: AuthRequest, res: Response, next: 
             return next();
         }
 
-        if (req.user.role === 'SuperAdmin') {
+        if (req.user.roleId === ROLES.SUPER_ADMIN) {
             return next();
         }
 
-        if (req.user.role === 'Admin') {
-            const targetUser = await userRepository.findById(targetUserId, {
-                include: [{ model: Role, as: 'role' }]
-            });
+        if (req.user.roleId === ROLES.ADMIN) {
+            const targetUser = await userRepository.findById(targetUserId);
             if (!targetUser) return res.status(404).json({ message: 'User not found' });
 
-            const targetRole = (targetUser as any).role;
-            if (targetRole && (targetRole.name === 'Admin' || targetRole.name === 'SuperAdmin')) {
+            if (targetUser.roleId === ROLES.ADMIN || targetUser.roleId === ROLES.SUPER_ADMIN) {
                 return res.status(403).json({ message: 'Admins cannot modify other Admins or SuperAdmins' });
             }
             return next();

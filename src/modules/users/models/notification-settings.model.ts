@@ -1,4 +1,4 @@
-import { DataTypes, Model } from 'sequelize';
+import { DataTypes, Model, Optional } from 'sequelize';
 import { sequelize } from '../../../config/db';
 
 export interface NotificationSettingsAttributes {
@@ -12,7 +12,7 @@ export interface NotificationSettingsAttributes {
     updatedAt?: Date;
 }
 
-export interface NotificationSettingsCreationAttributes extends Omit<NotificationSettingsAttributes, 'id' | 'createdAt' | 'updatedAt'> {}
+export interface NotificationSettingsCreationAttributes extends Optional<NotificationSettingsAttributes, 'id' | 'createdAt' | 'updatedAt'> {}
 
 export class NotificationSettings extends Model<NotificationSettingsAttributes, NotificationSettingsCreationAttributes> implements NotificationSettingsAttributes {
     declare id: string;
