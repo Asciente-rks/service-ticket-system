@@ -8,12 +8,7 @@ import { authenticateToken } from '../../../middlewares/auth.middleware';
 import { authorizeRoles } from '../../../middlewares/permissions.middleware';
 import { ROLES } from '../../../config/roles';
 import { validate } from '../../../middlewares/validator.middleware';
-import {
-    createTicketSchema,
-    ticketIdParamsSchema,
-    updateTicketSchema,
-    createApprovalSchema
-} from '../../../utils/ticket.validation';
+import { createTicketSchema, ticketIdParamsSchema, updateTicketSchema, createApprovalSchema } from '../../../utils/ticket.validation';
 
 export const ticketRouter = Router();
 
