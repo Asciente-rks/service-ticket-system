@@ -7,7 +7,7 @@ import { deleteUser } from '../controllers/delete-user.controller';
 import { authenticateToken } from '../../../middlewares/auth.middleware';
 import { isAdmin, isOwnerOrAdmin, checkUserHierarchy } from '../../../middlewares/permissions.middleware';
 import { notificationSettingsRouter } from './notification-settings.routes';
-
+import { getRoles } from '../controllers/fetch-role.controller';
 import { validate } from '../../../middlewares/validator.middleware';
 import {
     createUserSchema,
@@ -24,3 +24,4 @@ userRouter.get('/', authenticateToken, isAdmin, listUsers);
 userRouter.get('/:id', authenticateToken, isOwnerOrAdmin, validate(userIdParamsSchema), getUser);
 userRouter.put('/:id', authenticateToken, isOwnerOrAdmin, checkUserHierarchy, validate(updateUserSchema), updateUser);
 userRouter.delete('/:id', authenticateToken, isOwnerOrAdmin, checkUserHierarchy, validate(userIdParamsSchema), deleteUser);
+userRouter.get('/roles', getRoles);

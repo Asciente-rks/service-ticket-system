@@ -9,6 +9,7 @@ import { authorizeRoles } from '../../../middlewares/permissions.middleware';
 import { ROLES } from '../../../config/roles';
 import { validate } from '../../../middlewares/validator.middleware';
 import { createTicketSchema, ticketIdParamsSchema, updateTicketSchema, createApprovalSchema } from '../../../utils/ticket.validation';
+import { getStatuses } from '../controllers/fetch-status.controller';
 
 export const ticketRouter = Router();
 
@@ -17,3 +18,4 @@ ticketRouter.get('/', authenticateToken, listTickets);
 ticketRouter.get('/:id', authenticateToken, validate(ticketIdParamsSchema), getTicket);
 ticketRouter.patch('/:id', authenticateToken, validate(updateTicketSchema), updateTicket);
 ticketRouter.post('/:id/approval', authenticateToken, authorizeRoles([ROLES.SUPER_ADMIN, ROLES.ADMIN]), validate(createApprovalSchema), addApproval);
+ticketRouter.get('/statuses', getStatuses);
