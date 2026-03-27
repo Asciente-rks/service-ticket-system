@@ -17,7 +17,6 @@ import {
 
 export const userRouter = Router();
 
-// Mount specific sub-routers before generic/parameterized routes.
 userRouter.use('/notification-settings', authenticateToken, notificationSettingsRouter);
 
 userRouter.post('/', authenticateToken, isAdmin, validate(createUserSchema), createUser);

@@ -1,6 +1,5 @@
 import * as yup from 'yup';
 
-// Schema for updating notification settings
 export const updateNotificationSettingsSchema = yup.object({
     body: yup.object({
         notifyAssignedTicket: yup.boolean(),
@@ -18,7 +17,6 @@ export const updateNotificationSettingsSchema = yup.object({
     ),
 });
 
-// Schema for listing notifications with optional pagination/filtering
 export const listNotificationsSchema = yup.object({
     query: yup.object({
         page: yup.number().integer('Page must be an integer').min(1, 'Page must be at least 1').optional(),

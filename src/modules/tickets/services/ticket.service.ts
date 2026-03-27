@@ -105,7 +105,7 @@ export const updateTicket = async (id: string, updates: UpdateTicketDto, userId:
     if (updates.priority && !VALID_PRIORITIES.includes(updates.priority)) {
         throw new Error(`Invalid priority. Allowed values: ${VALID_PRIORITIES.join(', ')}`);
     }
-
+ 
     const updatesAny = updates as any;
     if (updatesAny.status) {
         const statusEntity = await ticketStatusRepository.findByName(updatesAny.status);

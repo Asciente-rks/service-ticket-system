@@ -1,6 +1,5 @@
 import * as yup from 'yup';
 
-// Schema for user creation
 export const createUserSchema = yup.object({
     body: yup.object({
         name: yup.string().required('Name is required'),
@@ -10,7 +9,6 @@ export const createUserSchema = yup.object({
     }),
 });
 
-// Schema for user login
 export const loginSchema = yup.object({
     body: yup.object({
         email: yup.string().email('Must be a valid email').required('Email is required'),
@@ -18,7 +16,6 @@ export const loginSchema = yup.object({
     }),
 });
 
-// Schema for updating a user
 export const updateUserSchema = yup.object({
     body: yup.object({
         name: yup.string(),
@@ -35,7 +32,6 @@ export const updateUserSchema = yup.object({
     }),
 });
 
-// Schema for validating just the user ID in params
 export const userIdParamsSchema = yup.object({
     params: yup.object({
         id: yup.string().uuid('Invalid user ID format').required('User ID is required'),

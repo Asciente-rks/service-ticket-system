@@ -4,7 +4,7 @@ import * as userRepository from '../modules/users/repositories/user.repository';
 import * as roleRepository from '../modules/users/repositories/role.repository';
 import { Role } from '../modules/users/models/role.model';
 
-export const isAdmin = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const isAdmin = (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
 
@@ -17,7 +17,7 @@ export const isAdmin = async (req: AuthRequest, res: Response, next: NextFunctio
     }
 };
 
-export const isOwnerOrAdmin = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const isOwnerOrAdmin = (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
 
@@ -35,7 +35,7 @@ export const isOwnerOrAdmin = async (req: AuthRequest, res: Response, next: Next
 };
 
 export const authorizeRoles = (allowedRoles: string[]) => {
-    return async (req: AuthRequest, res: Response, next: NextFunction) => {
+    return (req: AuthRequest, res: Response, next: NextFunction) => {
         try {
             if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
 
