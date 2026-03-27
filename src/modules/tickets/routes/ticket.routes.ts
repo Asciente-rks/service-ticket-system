@@ -13,9 +13,10 @@ import { getStatuses } from '../controllers/fetch-status.controller';
 
 export const ticketRouter = Router();
 
+ticketRouter.get('/statuses', getStatuses);
+
 ticketRouter.post('/', authenticateToken, authorizeRoles([ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.TESTER]), validate(createTicketSchema), createTicket);
 ticketRouter.get('/', authenticateToken, listTickets);
 ticketRouter.get('/:id', authenticateToken, validate(ticketIdParamsSchema), getTicket);
 ticketRouter.patch('/:id', authenticateToken, validate(updateTicketSchema), updateTicket);
 ticketRouter.post('/:id/approval', authenticateToken, authorizeRoles([ROLES.SUPER_ADMIN, ROLES.ADMIN]), validate(createApprovalSchema), addApproval);
-ticketRouter.get('/statuses', getStatuses);

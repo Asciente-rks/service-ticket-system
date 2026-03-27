@@ -17,6 +17,8 @@ import {
 
 export const userRouter = Router();
 
+userRouter.get('/roles', getRoles);
+
 userRouter.use('/notification-settings', authenticateToken, notificationSettingsRouter);
 
 userRouter.post('/', authenticateToken, isAdmin, validate(createUserSchema), createUser);
@@ -24,4 +26,3 @@ userRouter.get('/', authenticateToken, isAdmin, listUsers);
 userRouter.get('/:id', authenticateToken, isOwnerOrAdmin, validate(userIdParamsSchema), getUser);
 userRouter.put('/:id', authenticateToken, isOwnerOrAdmin, checkUserHierarchy, validate(updateUserSchema), updateUser);
 userRouter.delete('/:id', authenticateToken, isOwnerOrAdmin, checkUserHierarchy, validate(userIdParamsSchema), deleteUser);
-userRouter.get('/roles', getRoles);
