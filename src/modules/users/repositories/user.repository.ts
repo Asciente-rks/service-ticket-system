@@ -43,8 +43,8 @@ export const findById = async (id: string) => {
 };
 
 export const findByEmail = async (email: string) => {
-    return await User.findOne({ where: { email } });
-};
+    return await User.unscoped().findOne({ where: { email } });
+  };
 
 export const update = async (id: string, updates: UpdateUserDto) => {
     const user = await User.findByPk(id);

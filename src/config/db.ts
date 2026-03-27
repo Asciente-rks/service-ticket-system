@@ -9,21 +9,32 @@ export const sequelize = new Sequelize(
   process.env.DB_PASSWORD!,
   {
     host: process.env.DB_HOST,
-    port: Number(process.env.DB_PORT) || 3306,
     dialect: 'mysql',
-    logging: false,
+    port: Number(process.env.DB_PORT) || 4000,
+    dialectOptions: {
+      ssl: {
+        rejectUnauthorized: true,
+      },
+    },
   }
 );
 
 export const connectDB = async () => {
   const bootstrapSequelize = new Sequelize('', process.env.DB_USER!, process.env.DB_PASSWORD!, {
     host: process.env.DB_HOST,
-    port: Number(process.env.DB_PORT) || 3306,
+    port: Number(process.env.DB_PORT) || 4000, // Make sure this is 4000 for TiDB
     dialect: 'mysql',
-    logging: false
+    logging: false,
+    /* ADD THIS BLOCK BELOW */
+    dialectOptions: {
+      ssl: {
+        rejectUnauthorized: true,
+      },
+    },
   });
 
   try {
+    // This will now work because it's using SSL
     await bootstrapSequelize.query(`CREATE DATABASE IF NOT EXISTS \`${process.env.DB_NAME}\`;`);
     await bootstrapSequelize.close();
 
