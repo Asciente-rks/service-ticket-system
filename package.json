@@ -6,7 +6,13 @@
   "scripts": {
     "build": "tsc",
     "start": "ts-node src/server.ts",
-    "dev": "nodemon --watch src --ext ts --exec ts-node src/server.ts"
+    "dev": "nodemon --watch src --ext ts --exec ts-node src/server.ts",
+    "db:sync": "ts-node src/scripts/sync-db.ts",
+    "seed:roles": "ts-node src/scripts/seed-roles.ts",
+    "seed:status": "ts-node src/scripts/seed-ticket-status.ts",
+    "seed:users": "ts-node src/scripts/seed-users.ts",
+    "seed:all": "npm run seed:roles && npm run seed:status && npm run seed:users",
+    "db:reset": "npm run db:sync && npm run seed:all"
   },
   "keywords": [],
   "author": "",
@@ -21,7 +27,6 @@
     "@types/nodemailer": "^7.0.11",
     "@types/uuid": "^10.0.0",
     "nodemon": "^3.1.0",
-    "sequelize-cli": "^6.6.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.4.5"
   },

@@ -4,7 +4,7 @@ import { defineAssociations } from '../associations/associations';
 const syncDatabase = async () => {
   try {
     if (process.env.NODE_ENV === 'production') {
-      throw new Error('UNSAFE OPERATION: Running sync({ alter: true }) in production is not allowed. Use migrations instead.');
+      throw new Error('UNSAFE OPERATION: Running sync({ force: true }) in production is not allowed. Use migrations instead.');
     }
 
     await connectDB();
@@ -12,7 +12,8 @@ const syncDatabase = async () => {
     defineAssociations();
 
     console.log('Syncing database schema...');
-    await sequelize.sync({ alter: true });
+
+    await sequelize.sync({ force: true });
     console.log('Database synchronized successfully.');
 
     await sequelize.close();

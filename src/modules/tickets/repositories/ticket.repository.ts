@@ -2,7 +2,6 @@ import { Ticket } from '../models/ticket.model';
 import { User } from '../../users/models/user.model';
 import { TicketStatus } from '../models/ticket-status.model';
 import { Approval } from '../models/approval.model';
-import { UpdateTicketDto } from '../dtos/update-ticket.dto';
 
 interface CreateTicketParams {
     title: string;

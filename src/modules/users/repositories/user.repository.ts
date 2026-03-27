@@ -1,5 +1,8 @@
 import { User } from '../models/user.model';
 import { UpdateUserDto } from '../dtos/update-user.dto';
+import { Role } from '../models/role.model';
+import { Ticket } from '../../tickets/models/ticket.model';
+import { Notification } from '../../notifications/models/notification.model';
 
 export const create = async (userData: any) => {
     return await User.create(userData);
@@ -9,8 +12,34 @@ export const findAll = async () => {
     return await User.findAll();
 };
 
-export const findById = async (id: string, options: any = {}) => {
-    return await User.findByPk(id, options);
+export const findById = async (id: string) => {
+    return await User.findByPk(id, {
+        attributes: ['id', 'name', 'email', 'roleId'],
+        include: [
+            {
+                model: Role,
+                as: 'role',
+                attributes: ['id', 'name'],
+            },
+            {
+                model: Ticket,
+                as: 'reportedTickets',
+                attributes: ['id', 'title', 'priority', 'createdAt'],
+            },
+            {
+                model: Ticket,
+                as: 'assignedTickets',
+                attributes: ['id', 'title', 'priority', 'createdAt'],
+            },
+            {
+                model: Notification,
+                as: 'notifications',
+                limit: 5,
+                order: [['createdAt', 'DESC']],
+                attributes: ['id', 'message', 'read', 'createdAt'],
+            },
+        ],
+    });
 };
 
 export const findByEmail = async (email: string) => {

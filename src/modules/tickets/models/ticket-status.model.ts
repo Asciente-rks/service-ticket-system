@@ -1,4 +1,4 @@
-import { DataTypes, Model } from 'sequelize';
+import { DataTypes, Model, Optional } from 'sequelize';
 import { sequelize } from '../../../config/db';
 
 export interface TicketStatusAttributes {
@@ -8,7 +8,7 @@ export interface TicketStatusAttributes {
   updatedAt?: Date;
 }
 
-export interface TicketStatusCreationAttributes extends Omit<TicketStatusAttributes, 'id' | 'createdAt' | 'updatedAt'> {}
+export interface TicketStatusCreationAttributes extends Optional<TicketStatusAttributes, 'id' | 'createdAt' | 'updatedAt'> {}
 
 export class TicketStatus extends Model<TicketStatusAttributes, TicketStatusCreationAttributes> implements TicketStatusAttributes {
   declare id: string;
@@ -33,7 +33,7 @@ TicketStatus.init(
     },
     {
       sequelize,
-      tableName: 'ticket_status',
+      tableName: 'ticket_statuses',
       timestamps: true
     }
   );

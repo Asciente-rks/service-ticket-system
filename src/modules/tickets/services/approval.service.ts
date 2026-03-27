@@ -6,7 +6,8 @@ import { ApprovalResponseDto } from '../dtos/approval-response.dto';
 import * as notificationService from '../../notifications/services/notification.service';
 import * as notificationSettingService from '../../users/services/notification-setting.service';
 import * as userRepository from '../../users/repositories/user.repository';
-import * as roleRepository from '../../users/repositories/role.repository';
+import { STATUSES } from '../../../config/statuses';
+import { ROLES } from '../../../config/roles';
 
 export const approveTicket = async (ticketId: string, approverId: string, approvalData: CreateApprovalDto): Promise<ApprovalResponseDto> => {
     if (approvalData.status !== 'Approved' && approvalData.status !== 'Rejected') {
@@ -16,8 +17,7 @@ export const approveTicket = async (ticketId: string, approverId: string, approv
     const approver = await userRepository.findById(approverId);
     if (!approver) throw new Error('Approver not found');
 
-    const approverRole = await roleRepository.findById(approver.roleId);
-    if (!approverRole || (approverRole.name !== 'Admin' && approverRole.name !== 'SuperAdmin')) {
+    if (approver.roleId !== ROLES.ADMIN && approver.roleId !== ROLES.SUPER_ADMIN) {
         throw new Error('Only Admins and SuperAdmins can approve tickets.');
     }
 
@@ -35,11 +35,11 @@ export const approveTicket = async (ticketId: string, approverId: string, approv
     });
 
     if (approvalData.status === 'Approved') {
-        const resolvedStatus = await ticketStatusRepository.findByName('Resolved');
+        const resolvedStatus = await ticketStatusRepository.findById(STATUSES.RESOLVED);
         if (resolvedStatus) {
             await ticketRepository.update(ticketId, { statusId: resolvedStatus.id });
         }
-    } else if (approvalData.status === 'Rejected') {
+    } else if (approvalData.status === 'Rejected') {        
         const errorPersistsStatus = await ticketStatusRepository.findByName('Error Persists');
         if (errorPersistsStatus) {
              await ticketRepository.update(ticketId, { statusId: errorPersistsStatus.id });

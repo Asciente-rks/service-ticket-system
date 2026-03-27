@@ -3,6 +3,7 @@ import { Op } from 'sequelize';
 import { Ticket } from '../models/ticket.model';
 import { TicketStatus } from '../models/ticket-status.model';
 import * as notificationService from '../../notifications/services/notification.service';
+import { STATUSES } from '../../../config/statuses';
 
 export const initCronJobs = () => {
     cron.schedule('0 9 * * *', async () => {
@@ -25,7 +26,7 @@ export const initCronJobs = () => {
             });
 
             for (const ticket of staleTickets) {
-                if ((ticket as any).status?.name !== 'Resolved' && (ticket as any).status?.name !== 'Closed') {
+                if ((ticket as any).status?.id !== STATUSES.RESOLVED && (ticket as any).status?.id !== STATUSES.CLOSED) {
                     await notificationService.createNotification({
                         userId: ticket.assignedTo!,
                         ticketId: ticket.id,

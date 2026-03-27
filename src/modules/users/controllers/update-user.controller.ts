@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
 import * as userService from '../services/user.service';
 import { UpdateUserDto } from '../dtos/update-user.dto';
-import { UserResponseDto } from '../dtos/user-response.dto';
 
 export const updateUser = async (req: Request, res: Response) => {
     try {
