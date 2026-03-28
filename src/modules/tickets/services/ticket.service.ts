@@ -24,7 +24,12 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
 
     if (ticketData.assigneeId) {
         const assignee = await userRepository.findById(ticketData.assigneeId);
-        if (assignee && assignee.id !== reporterId) {
+        
+        if (!assignee) {
+            throw new Error('Assignee user not found.');
+        }
+
+        if (assignee.id !== reporterId) {
             if (assignee.roleId === ROLES.SUPER_ADMIN) {
                 throw new Error('Tickets cannot be assigned to SuperAdmins.');
             }
