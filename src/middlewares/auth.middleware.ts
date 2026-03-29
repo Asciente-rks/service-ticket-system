@@ -18,7 +18,7 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
         return res.status(401).json({ message: 'Access token not found' });
     }
 
-    jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key', (err: any, user: any) => {
+    jwt.verify(token, process.env.JWT_SECRET!, (err: any, user: any) => {
         if (err) {
             return res.status(403).json({ message: 'Invalid token' });
         }

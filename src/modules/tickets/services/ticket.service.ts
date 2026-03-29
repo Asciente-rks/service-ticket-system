@@ -29,22 +29,29 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
             throw new Error('Assignee user not found.');
         }
 
+        const assigneeRoleId = (assignee.roleId || '').toLowerCase();
+        const creatorRoleId = (reporterRoleId || '').toLowerCase();
+        const superAdminRole = ROLES.SUPER_ADMIN.toLowerCase();
+        const adminRole = ROLES.ADMIN.toLowerCase();
+        const devRole = ROLES.DEVELOPER.toLowerCase();
+        const testerRole = ROLES.TESTER.toLowerCase();
+
         if (assignee.id !== reporterId) {
-            if (assignee.roleId === ROLES.SUPER_ADMIN) {
+            if (assigneeRoleId === superAdminRole) {
                 throw new Error('Tickets cannot be assigned to SuperAdmins.');
             }
 
-            if (reporterRoleId === ROLES.ADMIN) {
-                if (![ROLES.DEVELOPER, ROLES.TESTER].includes(assignee.roleId)) {
+            if (creatorRoleId === adminRole) {
+                if (![devRole, testerRole].includes(assigneeRoleId)) {
                     throw new Error('Admins can only assign tickets to Developers and Testers.');
                 }
-            } else if (reporterRoleId === ROLES.TESTER) {
-                if (![ROLES.DEVELOPER, ROLES.TESTER].includes(assignee.roleId)) {
+            } else if (creatorRoleId === testerRole) {
+                if (![devRole, testerRole].includes(assigneeRoleId)) {
                     throw new Error('Testers can only assign tickets to Developers and fellow Testers.');
                 }
-            } else if (reporterRoleId === ROLES.DEVELOPER) {
-                if (assignee.roleId !== ROLES.TESTER) {
-                    throw new Error('Developers can only assign tickets to Testers.');
+            } else if (creatorRoleId === devRole) {
+                if (![devRole, testerRole].includes(assigneeRoleId)) {
+                    throw new Error('Developers can only assign tickets to fellow Developers and Testers.');
                 }
             }
         }
@@ -123,22 +130,30 @@ export const updateTicket = async (id: string, updates: UpdateTicketDto, userId:
             if (!assignee) {
                 throw new Error('Assignee user not found');
             }
+
+            const assigneeRoleId = (assignee.roleId || '').toLowerCase();
+            const actorRoleId = (roleId || '').toLowerCase();
+            const superAdminRole = ROLES.SUPER_ADMIN.toLowerCase();
+            const adminRole = ROLES.ADMIN.toLowerCase();
+            const devRole = ROLES.DEVELOPER.toLowerCase();
+            const testerRole = ROLES.TESTER.toLowerCase();
+
             if (newAssigneeId !== userId) {
-                if (assignee.roleId === ROLES.SUPER_ADMIN) {
+                if (assigneeRoleId === superAdminRole) {
                     throw new Error('Tickets cannot be assigned to SuperAdmins.');
                 }
 
-                if (roleId === ROLES.ADMIN) {
-                    if (![ROLES.DEVELOPER, ROLES.TESTER].includes(assignee.roleId)) {
+                if (actorRoleId === adminRole) {
+                    if (![devRole, testerRole].includes(assigneeRoleId)) {
                         throw new Error('Admins can only assign tickets to Developers and Testers.');
                     }
-                } else if (roleId === ROLES.TESTER) {
-                    if (![ROLES.DEVELOPER, ROLES.TESTER].includes(assignee.roleId)) {
+                } else if (actorRoleId === testerRole) {
+                    if (![devRole, testerRole].includes(assigneeRoleId)) {
                         throw new Error('Testers can only assign tickets to Developers and fellow Testers.');
                     }
-                } else if (roleId === ROLES.DEVELOPER) {
-                    if (assignee.roleId !== ROLES.TESTER) {
-                        throw new Error('Developers can only assign tickets to Testers.');
+                } else if (actorRoleId === devRole) {
+                    if (![devRole, testerRole].includes(assigneeRoleId)) {
+                        throw new Error('Developers can only assign tickets to fellow Developers and Testers.');
                     }
                 }
             }

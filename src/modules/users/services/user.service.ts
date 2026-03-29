@@ -4,12 +4,18 @@ import { UserResponseDto } from '../dtos/user-response.dto';
 import { UpdateUserDto } from '../dtos/update-user.dto';
 import * as userRepository from '../repositories/user.repository';
 import { ROLES } from '../../../config/roles';
+import { isStaffRole } from '../../../middlewares/role.utils';
 
 export const createUser = async (userData: CreateUserDto, creatorRoleId: string): Promise<UserResponseDto> => {
-    if (userData.roleId === ROLES.SUPER_ADMIN) {
+    const targetRoleId = (userData.roleId || '').toLowerCase();
+    const actorRoleId = (creatorRoleId || '').toLowerCase();
+    const superAdminRole = ROLES.SUPER_ADMIN.toLowerCase();
+    const adminRole = ROLES.ADMIN.toLowerCase();
+
+    if (targetRoleId === superAdminRole) {
         throw new Error('Cannot create a user with SuperAdmin role.');
     }
-    if (userData.roleId === ROLES.ADMIN && creatorRoleId !== ROLES.SUPER_ADMIN) {
+    if (targetRoleId === adminRole && actorRoleId !== superAdminRole) {
         throw new Error('Only SuperAdmins can create Admin users.');
     }
 
@@ -20,15 +26,24 @@ export const createUser = async (userData: CreateUserDto, creatorRoleId: string)
 
 export const getAllUsers = async (requestingUserRoleId?: string): Promise<UserResponseDto[]> => {
   try {
+    const reqRoleId = (requestingUserRoleId || '').toLowerCase();
+    const superAdminRole = ROLES.SUPER_ADMIN.toLowerCase();
+    const adminRole = ROLES.ADMIN.toLowerCase();
+
     const users = await userRepository.findAll();
     
-    if (requestingUserRoleId !== ROLES.SUPER_ADMIN) {
+    if (reqRoleId === superAdminRole) {
+        return users.map(user => toUserResponseDto(user));
+    }
+
+    // Admins, Developers, and Testers only see fellow Staff (Devs/Testers) for reassignment
+    if (reqRoleId === adminRole || isStaffRole(reqRoleId)) {
         return users
-            .filter(user => user.roleId !== ROLES.SUPER_ADMIN)
+            .filter(user => isStaffRole(user.roleId)) // Removes Admins and SuperAdmins from the result
             .map(user => toUserResponseDto(user));
     }
 
-    return users.map(user => toUserResponseDto(user));
+    return [];
   } catch (error) {
     throw new Error(`Error getting all users: ${error}`);
   }
@@ -41,11 +56,15 @@ export const getUserById = async (id: string, requestingUserRoleId?: string, req
       return null;
     }
 
-    if (user.roleId === ROLES.SUPER_ADMIN && requestingUserRoleId !== ROLES.SUPER_ADMIN) {
+    const userRoleId = (user.roleId || '').toLowerCase();
+    const reqRoleId = (requestingUserRoleId || '').toLowerCase();
+    const superAdminRole = ROLES.SUPER_ADMIN.toLowerCase();
+
+    if (userRoleId === superAdminRole && reqRoleId !== superAdminRole) {
         return null;
     }
 
-    return user.toJSON() as UserResponseDto;
+    return toUserResponseDto(user);
   } catch (error) {
     throw new Error(`Error getting user by id: ${error}`);
   }

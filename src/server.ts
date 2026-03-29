@@ -1,5 +1,8 @@
 import express from 'express';
 import dotenv from 'dotenv';
+
+dotenv.config(); // Move this to the very top, before any other local imports
+
 import cors from 'cors'; // Added for Frontend connection
 import helmet from 'helmet'; // Added for Security
 import { sequelize, connectDB } from './config/db';
@@ -10,8 +13,6 @@ import { ticketRouter} from './modules/tickets/routes/ticket.routes';
 import { notificationRouter } from './modules/notifications/routes/notification.routes';
 import { initCronJobs } from './modules/tickets/cron/ticket.cron';
 import { notificationSettingsRouter } from './modules/users/routes/notification-settings.routes';
-
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;

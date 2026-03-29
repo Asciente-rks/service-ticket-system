@@ -20,7 +20,12 @@ export const login = async (email: string, password: string) => {
     const role = await roleRepository.findById(user.roleId);
     const roleName = role ? role.name : '';
 
-    const token = jwt.sign({ id: user.id, roleId: user.roleId, email: user.email, role: roleName }, process.env.JWT_SECRET!, { expiresIn: '1h' });
+    const token = jwt.sign(
+        { id: user.id.toString(), roleId: user.roleId, email: user.email, role: roleName }, 
+        process.env.JWT_SECRET!, 
+        { expiresIn: '1h' }
+    );
+
     const userResponse: UserResponseDto = { id: user.id.toString(), roleId: user.roleId, name: user.name, email: user.email };
     return { user: userResponse, token };
 } 

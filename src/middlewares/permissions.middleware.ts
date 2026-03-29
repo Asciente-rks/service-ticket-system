@@ -2,13 +2,17 @@ import { Response, NextFunction } from 'express';
 import { AuthRequest } from './auth.middleware';
 import * as userRepository from '../modules/users/repositories/user.repository';
 import { ROLES } from '../config/roles';
+import { isAdminRole, isStaffRole } from './role.utils';
 
 export const isAdmin = (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
 
-        const allowedAdminIds = [ROLES.ADMIN, ROLES.SUPER_ADMIN];
-        if (!allowedAdminIds.includes(req.user.roleId)) {
+        console.log(`[DEBUG] isAdmin middleware triggered for: ${req.method} ${req.originalUrl} by ${req.user.email}`);
+
+        const userRole = req.user.roleId;
+
+        if (!isAdminRole(userRole)) {
             return res.status(403).json({ message: 'Require Admin or SuperAdmin Role' });
         }
         next();
@@ -17,18 +21,39 @@ export const isAdmin = (req: AuthRequest, res: Response, next: NextFunction) => 
     }
 };
 
-export const isOwnerOrAdmin = (req: AuthRequest, res: Response, next: NextFunction) => {
+export const isOwnerOrAdmin = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
 
         const userIdToCheck = req.params.id;
-        if (req.user.id == userIdToCheck) {
+        const actorRoleId = req.user.roleId;
+        const actorId = String(req.user.id || '');
+
+        // 1. Users can always access their own profile
+        if (actorId == userIdToCheck) {
             return next();
         }
-        const allowedAdminIds = [ROLES.ADMIN, ROLES.SUPER_ADMIN];
-        if (allowedAdminIds.includes(req.user.roleId)) {
+
+        // 2. SuperAdmins can access everything
+        if ((actorRoleId || '').toLowerCase() === (ROLES.SUPER_ADMIN || '').toLowerCase()) {
             return next();
         }
+
+        // If checking a specific user, we need to know their role
+        const targetUser = await userRepository.findById(userIdToCheck);
+        if (!targetUser) return res.status(404).json({ message: 'User not found' });
+        const targetRoleId = targetUser.roleId;
+
+        // 3. Admins can access Developers and Testers
+        if ((actorRoleId || '').toLowerCase() === (ROLES.ADMIN || '').toLowerCase() && isStaffRole(targetRoleId)) {
+            return next();
+        }
+
+        // 4. Developers and Testers can access fellow Developers and Testers (for reassignment)
+        if (isStaffRole(actorRoleId) && isStaffRole(targetRoleId)) {
+            return next();
+        }
+
         return res.status(403).json({ message: 'Not authorized to perform this action' });
     } catch (error) {
         res.status(500).json({ message: 'Error checking permissions', error });
@@ -40,11 +65,15 @@ export const authorizeRoles = (allowedRoleIds: string[]) => {
         try {
             if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
 
-            if (req.user.roleId === ROLES.SUPER_ADMIN) {
+            const userRole = (req.user.roleId || '').toLowerCase();
+            const superAdminRole = (ROLES.SUPER_ADMIN || '').toLowerCase();
+            const normalizedAllowed = allowedRoleIds.map(id => id.toLowerCase());
+
+            if (userRole === superAdminRole) {
                 return next();
             }
 
-            if (!allowedRoleIds.includes(req.user.roleId)) {
+            if (!normalizedAllowed.includes(userRole)) {
                 return res.status(403).json({ message: 'Forbidden: Insufficient permissions' });
             }
             next();
@@ -60,22 +89,32 @@ export const checkUserHierarchy = async (req: AuthRequest, res: Response, next: 
 
         const targetUserId = req.params.id;
         const actorId = req.user.id;
+        const actorRoleId = req.user.roleId;
+
         if (targetUserId == actorId) {
             return next();
         }
 
-        if (req.user.roleId === ROLES.SUPER_ADMIN) {
+        if (actorRoleId.toLowerCase() === ROLES.SUPER_ADMIN.toLowerCase()) {
             return next();
         }
 
-        if (req.user.roleId === ROLES.ADMIN) {
-            const targetUser = await userRepository.findById(targetUserId);
-            if (!targetUser) return res.status(404).json({ message: 'User not found' });
+        const targetUser = await userRepository.findById(targetUserId);
+        if (!targetUser) return res.status(404).json({ message: 'User not found' });
+        const targetRoleId = targetUser.roleId;
 
-            if (targetUser.roleId === ROLES.ADMIN || targetUser.roleId === ROLES.SUPER_ADMIN) {
+        if (actorRoleId.toLowerCase() === ROLES.ADMIN.toLowerCase()) {
+            if (isAdminRole(targetRoleId)) {
                 return res.status(403).json({ message: 'Admins cannot modify other Admins or SuperAdmins' });
             }
             return next();
+        }
+
+        if (isStaffRole(actorRoleId)) {
+            if (isStaffRole(targetRoleId)) {
+                return next();
+            }
+            return res.status(403).json({ message: 'Developers and Testers can only interact with fellow Developers or Testers' });
         }
 
         return res.status(403).json({ message: 'Forbidden: Insufficient permissions' });
