@@ -67,17 +67,21 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
         statusId: STATUSES.OPEN
     });
 
-    // Optimized: Convert the created instance directly instead of re-fetching from DB
-    const createdTicket = toTicketResponseDto(ticket);
+    // Re-fetch the ticket with associations (reporter, assignee, status) 
+    // to ensure toTicketResponseDto doesn't crash on undefined properties
+    const ticketWithAssociations = await ticketRepository.findById(ticket.id);
+    if (!ticketWithAssociations) throw new Error('Error fetching created ticket');
+
+    const createdTicket = toTicketResponseDto(ticketWithAssociations);
 
     if (ticket.assignedTo) {
         const settings = await notificationSettingService.getNotificationSettings(ticket.assignedTo);
         if (settings.notifyAssignedTicket) {
-            await notificationService.createNotification({
+            notificationService.createNotification({
                 userId: ticket.assignedTo,
                 ticketId: ticket.id,
                 message: `You have been assigned a new ticket: ${ticket.title}`
-            });
+            }).catch(err => console.error("Notification failed:", err));
         }
     }
     return createdTicket;
