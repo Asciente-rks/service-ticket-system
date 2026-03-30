@@ -42,13 +42,9 @@ const startServer = async () => {
     // 2. Setup Relationships
     defineAssociations();
     
-    // 3. Database Synchronization
-    // Note: TiDB has limitations with 'alter: true' (Error 8200) for column constraint changes.
-    // Using a standard sync is safer. For schema modifications, use migrations or your 'db:sync' script.
-    if (!isProd) {
-        // Only sync in development to save Request Units (RUs) in production
-        await sequelize.sync(); 
-    }
+    // 3. Database Synchronization (DISABLED for RU Optimization)
+    // Metadata queries (Introspection) burn RUs. COMMENT THIS OUT if tables already exist.
+    // if (!isProd) { await sequelize.sync({ alter: false }); }
     
     console.log(`Databases connected and synced (Mode: ${isProd ? 'Production' : 'Development'}).`);
 

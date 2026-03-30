@@ -21,8 +21,8 @@ export const sequelize = new Sequelize(
       max: 5,
       min: 0,        // Release all connections when idle to save RUs
       acquire: 30000,
-      idle: 1000,
-      evict: 1000   // Close connection after 10 seconds of inactivity
+      idle: 2000,    // Kill connection after 2 seconds
+      evict: 1000    // Check every 1 second
     },
   }
 );
