@@ -3,7 +3,6 @@ import jwt from 'jsonwebtoken';
 import { UserResponseDto } from '../dtos/user-response.dto';
 import * as userRepository from '../repositories/user.repository';
 import * as roleRepository from '../repositories/role.repository';
-
 export const login = async (email: string, password: string) => {
     const user = await userRepository.findByEmail(email);
     
@@ -17,8 +16,8 @@ export const login = async (email: string, password: string) => {
         return{ user: null, token: null };
     }
 
-    const role = await roleRepository.findById(user.roleId);
-    const roleName = role ? role.name : '';
+    // Optimized: Use the role name already fetched in the findByEmail query
+    const roleName = (user as any).role ? (user as any).role.name : '';
 
     const token = jwt.sign(
         { id: user.id.toString(), roleId: user.roleId, email: user.email, role: roleName }, 

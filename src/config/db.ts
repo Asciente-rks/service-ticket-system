@@ -16,6 +16,12 @@ export const sequelize = new Sequelize(
         rejectUnauthorized: true,
       },
     },
+    pool: {
+      max: 5,
+      min: 0,        // Release all connections when idle to save RUs
+      acquire: 30000,
+      idle: 10000,   // Close connection after 10 seconds of inactivity
+    },
   }
 );
 
