@@ -1,13 +1,18 @@
 import { Request, Response } from 'express';
-import { sequelize } from '../../../config/db'; 
-import { QueryTypes } from 'sequelize';
+import * as ticketStatusRepository from '../repositories/ticket-status.repository';
+
+// Static data cache to minimize database hits
+let statusCache: any[] | null = null;
 
 export const getStatuses = async (req: Request, res: Response) => {
   try {
-    // Fetch the ID and Name from your ticket_statuses table
-    const statuses = await sequelize.query('SELECT id, name FROM ticket_statuses', {
-      type: QueryTypes.SELECT,
-    });
+    if (statusCache) {
+      return res.status(200).json(statusCache);
+    }
+
+    // Use Repository pattern to handle data access
+    const statuses = await ticketStatusRepository.findAll();
+    statusCache = statuses;
 
     return res.status(200).json(statuses);
   } catch (error) {

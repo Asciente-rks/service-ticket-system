@@ -12,7 +12,14 @@ export interface NotificationSettingsAttributes {
     updatedAt?: Date;
 }
 
-export interface NotificationSettingsCreationAttributes extends Optional<NotificationSettingsAttributes, 'id' | 'createdAt' | 'updatedAt'> {}
+export interface NotificationSettingsCreationAttributes extends Optional<
+    NotificationSettingsAttributes, 
+    'id' | 'createdAt' | 'updatedAt' | 
+    'notifyAssignedTicket' | 
+    'notifyReportedTicket' | 
+    'notifyTicketApproved' | 
+    'notifyTicketRejected'
+> {}
 
 export class NotificationSettings extends Model<NotificationSettingsAttributes, NotificationSettingsCreationAttributes> implements NotificationSettingsAttributes {
     declare id: string;

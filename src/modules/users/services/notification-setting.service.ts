@@ -31,7 +31,8 @@ export const updateNotificationSettings = async (userId: string, updates: Partia
     };
 
     // 3. Perform the update with the merged data
-    await notificationSettingRepository.createOrUpdate(userId, mergedUpdates);
-
-    return await notificationSettingRepository.findByUserId(userId);
+    const updated = await notificationSettingRepository.createOrUpdate(userId, mergedUpdates);
+    
+    // Return as plain object to ensure immediate UI consistency
+    return (updated as any).get ? (updated as any).get({ plain: true }) : updated;
 };

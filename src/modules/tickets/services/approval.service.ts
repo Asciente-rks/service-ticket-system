@@ -14,7 +14,8 @@ export const approveTicket = async (ticketId: string, approverId: string, approv
         throw new Error('Invalid status. Allowed values: Approved, Rejected');
     }
 
-    const approver = await userRepository.findById(approverId);
+    // Optimized: Use basic fetch instead of fetching full user profile with joins
+    const approver = await userRepository.findBasicById(approverId);
     if (!approver) throw new Error('Approver not found');
 
     if (approver.roleId !== ROLES.ADMIN && approver.roleId !== ROLES.SUPER_ADMIN) {

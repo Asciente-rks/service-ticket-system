@@ -5,13 +5,7 @@ export const findByUserId = async (userId: string) => {
 };
 
 export const createOrUpdate = async (userId: string, data: Partial<NotificationSettingsCreationAttributes>) => {
-    const [settings, created] = await NotificationSettings.findOrCreate({
-        where: { userId },
-        defaults: { ...data, userId } as NotificationSettingsCreationAttributes
-    });
-
-    if (!created) {
-        return await settings.update(data);
-    }
-    return settings;
+    // TiDB Optimization: upsert uses INSERT ... ON DUPLICATE KEY UPDATE
+    const [instance] = await NotificationSettings.upsert({ ...data, userId });
+    return instance;
 };

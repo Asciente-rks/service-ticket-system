@@ -5,6 +5,7 @@ import { UpdateUserDto } from '../dtos/update-user.dto';
 import * as userRepository from '../repositories/user.repository';
 import { ROLES } from '../../../config/roles';
 import { isStaffRole } from '../../../middlewares/role.utils';
+import { Op } from 'sequelize';
 
 export const createUser = async (userData: CreateUserDto, creatorRoleId: string): Promise<UserResponseDto> => {
     const targetRoleId = (userData.roleId || '').toLowerCase();
@@ -30,17 +31,20 @@ export const getAllUsers = async (requestingUserRoleId?: string): Promise<UserRe
     const superAdminRole = ROLES.SUPER_ADMIN.toLowerCase();
     const adminRole = ROLES.ADMIN.toLowerCase();
 
-    const users = await userRepository.findAll();
-    
     if (reqRoleId === superAdminRole) {
+        const users = await userRepository.findAll();
         return users.map(user => toUserResponseDto(user));
     }
 
     // Admins, Developers, and Testers only see fellow Staff (Devs/Testers) for reassignment
+    // TiDB Optimization: Filter at the DB level instead of using .filter()
     if (reqRoleId === adminRole || isStaffRole(reqRoleId)) {
-        return users
-            .filter(user => isStaffRole(user.roleId)) // Removes Admins and SuperAdmins from the result
-            .map(user => toUserResponseDto(user));
+        const staffUsers = await userRepository.findAll({
+            where: {
+                roleId: { [Op.in]: [ROLES.DEVELOPER, ROLES.TESTER] }
+            }
+        });
+        return staffUsers.map(user => toUserResponseDto(user));
     }
 
     return [];

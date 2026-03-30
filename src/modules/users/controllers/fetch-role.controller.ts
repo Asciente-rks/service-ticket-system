@@ -1,13 +1,18 @@
 import { Request, Response } from 'express';
-import { sequelize } from '../../../config/db'; // Make sure this path points to your db.ts/config file
-import { QueryTypes } from 'sequelize';
+import * as roleRepository from '../repositories/role.repository';
+
+// Simple in-memory cache to save TiDB Request Units (RUs)
+let rolesCache: any[] | null = null;
 
 export const getRoles = async (req: Request, res: Response) => {
   try {
-    // In Sequelize, raw queries return just the data if you specify the type
-    const roles = await sequelize.query('SELECT id, name FROM roles', {
-      type: QueryTypes.SELECT,
-    });
+    if (rolesCache) {
+      return res.status(200).json(rolesCache);
+    }
+
+    // Use repository instead of raw query for better optimization
+    const roles = await roleRepository.findAll();
+    rolesCache = roles;
 
     return res.status(200).json(roles);
   } catch (error) {

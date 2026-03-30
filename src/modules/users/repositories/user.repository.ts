@@ -8,8 +8,13 @@ export const create = async (userData: any) => {
     return await User.create(userData);
 };
 
-export const findAll = async () => {
-    return await User.findAll();
+export const findBasicById = async (id: string) => {
+    // Optimized for TiDB: Fetches only essential columns without heavy joins
+    return await User.findByPk(id, { attributes: ['id', 'name', 'email', 'roleId'] });
+};
+
+export const findAll = async (options: any = {}) => {
+    return await User.findAll(options);
 };
 
 export const findById = async (id: string) => {

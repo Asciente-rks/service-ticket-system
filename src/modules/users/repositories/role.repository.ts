@@ -1,9 +1,11 @@
 import { Role } from '../models/role.model';
 
-export const findById = async (id: string) => {
-    return await Role.findByPk(id);
+export const findAll = async () => {
+  return await Role.findAll({
+    attributes: ['id', 'name']
+  });
 };
 
-export const findByName = async (name: string) => {
-    return await Role.findOne({ where: { name } });
+export const findById = async (id: string) => {
+  return await Role.findByPk(id);
 };

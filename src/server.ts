@@ -45,7 +45,10 @@ const startServer = async () => {
     // 3. Database Synchronization
     // Note: TiDB has limitations with 'alter: true' (Error 8200) for column constraint changes.
     // Using a standard sync is safer. For schema modifications, use migrations or your 'db:sync' script.
-    await sequelize.sync(); 
+    if (!isProd) {
+        // Only sync in development to save Request Units (RUs) in production
+        await sequelize.sync(); 
+    }
     
     console.log(`Databases connected and synced (Mode: ${isProd ? 'Production' : 'Development'}).`);
 

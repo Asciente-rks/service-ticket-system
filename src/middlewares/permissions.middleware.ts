@@ -38,7 +38,8 @@ export const isOwnerOrAdmin = async (req: AuthRequest, res: Response, next: Next
         }
 
         // If checking a specific user, we need to know their role
-        const targetUser = await userRepository.findById(userIdToCheck);
+        // Optimized: Middleware only needs roleId, not the full user profile
+        const targetUser = await userRepository.findBasicById(userIdToCheck);
         if (!targetUser) return res.status(404).json({ message: 'User not found' });
         const targetRoleId = targetUser.roleId;
 
@@ -97,7 +98,8 @@ export const checkUserHierarchy = async (req: AuthRequest, res: Response, next: 
             return next();
         }
 
-        const targetUser = await userRepository.findById(targetUserId);
+        // Optimized: Middleware only needs roleId
+        const targetUser = await userRepository.findBasicById(targetUserId);
         if (!targetUser) return res.status(404).json({ message: 'User not found' });
         const targetRoleId = targetUser.roleId;
 
