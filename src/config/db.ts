@@ -11,6 +11,7 @@ export const sequelize = new Sequelize(
     host: process.env.DB_HOST,
     dialect: 'mysql',
     port: Number(process.env.DB_PORT) || 4000,
+    logging: process.env.NODE_ENV === 'production' ? false : console.log,
     dialectOptions: {
       ssl: {
         rejectUnauthorized: true,
@@ -20,7 +21,8 @@ export const sequelize = new Sequelize(
       max: 5,
       min: 0,        // Release all connections when idle to save RUs
       acquire: 30000,
-      idle: 10000,   // Close connection after 10 seconds of inactivity
+      idle: 1000,
+      evict: 1000   // Close connection after 10 seconds of inactivity
     },
   }
 );
@@ -36,6 +38,7 @@ export const connectDB = async () => {
       ssl: {
         rejectUnauthorized: true,
       },
+      pool: { max: 1, min: 0, idle: 100 },
     },
   });
 

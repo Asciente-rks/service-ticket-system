@@ -20,13 +20,13 @@ export const findAll = async (whereClause: any = {}) => {
     return await Ticket.findAll({
         where: whereClause,
         include: [
-            { model: User, as: 'reporter' },
-            { model: User, as: 'assignee' },
-            { model: TicketStatus, as: 'status' },
+            { model: User, as: 'reporter', attributes: ['id', 'name', 'email'] },
+            { model: User, as: 'assignee', attributes: ['id', 'name', 'email'] },
+            { model: TicketStatus, as: 'status', attributes: ['id', 'name'] },
             { 
                 model: Approval, 
                 as: 'approvals',
-                include: [{ model: User, as: 'approver' }]
+                include: [{ model: User, as: 'approver', attributes: ['id', 'name'] }]
             }
         ]
     });
@@ -35,13 +35,13 @@ export const findAll = async (whereClause: any = {}) => {
 export const findById = async (id: string) => {
     return await Ticket.findByPk(id, {
         include: [
-            { model: User, as: 'reporter' },
-            { model: User, as: 'assignee' },
-            { model: TicketStatus, as: 'status' },
+            { model: User, as: 'reporter', attributes: ['id', 'name', 'email'] },
+            { model: User, as: 'assignee', attributes: ['id', 'name', 'email'] },
+            { model: TicketStatus, as: 'status', attributes: ['id', 'name'] },
             { 
                 model: Approval, 
                 as: 'approvals',
-                include: [{ model: User, as: 'approver' }]
+                include: [{ model: User, as: 'approver', attributes: ['id', 'name'] }]
             }
         ]
     });

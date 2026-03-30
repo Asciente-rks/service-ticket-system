@@ -14,7 +14,11 @@ export const findBasicById = async (id: string) => {
 };
 
 export const findAll = async (options: any = {}) => {
-    return await User.findAll(options);
+    const optimizedOptions = {
+        attributes: ['id', 'name', 'email', 'roleId'], // Never fetch passwords in lists
+        ...options
+    };
+    return await User.findAll(optimizedOptions);
 };
 
 export const findById = async (id: string) => {
