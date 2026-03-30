@@ -16,7 +16,6 @@ export const login = async (email: string, password: string) => {
         return{ user: null, token: null };
     }
 
-    // Optimized: Use the role name already fetched in the findByEmail query
     const roleName = (user as any).role ? (user as any).role.name : '';
 
     const token = jwt.sign(

@@ -10,7 +10,6 @@ export const getStatuses = async (req: Request, res: Response) => {
       return res.status(200).json(statusCache);
     }
 
-    // Use Repository pattern to handle data access
     const statuses = await ticketStatusRepository.findAll();
     statusCache = statuses;
 

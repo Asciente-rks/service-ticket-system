@@ -9,13 +9,12 @@ export const create = async (userData: any) => {
 };
 
 export const findBasicById = async (id: string) => {
-    // Optimized for TiDB: Fetches only essential columns without heavy joins
     return await User.findByPk(id, { attributes: ['id', 'name', 'email', 'roleId'] });
 };
 
 export const findAll = async (options: any = {}) => {
     const optimizedOptions = {
-        attributes: ['id', 'name', 'email', 'roleId'], // Never fetch passwords in lists
+        attributes: ['id', 'name', 'email', 'roleId'],
         ...options
     };
     return await User.findAll(optimizedOptions);

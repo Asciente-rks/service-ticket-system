@@ -1,10 +1,10 @@
 import express from 'express';
 import dotenv from 'dotenv';
 
-dotenv.config(); // Move this to the very top, before any other local imports
+dotenv.config();
 
-import cors from 'cors'; // Added for Frontend connection
-import helmet from 'helmet'; // Added for Security
+import cors from 'cors';
+import helmet from 'helmet';
 import { sequelize, connectDB } from './config/db';
 import { defineAssociations } from './associations/associations';
 import { userRouter } from './modules/users/routes/user.routes';
@@ -17,34 +17,24 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const isProd = process.env.NODE_ENV === 'production';
 
-// --- Middleware ---
-app.use(helmet()); // Protects against common web vulnerabilities
-app.use(cors());   // Allows your frontend (React/Vue/etc) to call this API
+app.use(helmet());
+app.use(cors());
 app.use(express.json());
 
-// --- Health Check (Essential for Render/Railway/AWS) ---
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'UP', timestamp: new Date() });
 });
 
-// --- Routes ---
 app.use('/auth', authRouter);
 app.use('/users', userRouter);
 app.use('/tickets', ticketRouter);
 app.use('/notifications', notificationRouter);
 
-// --- Server Startup ---
 const startServer = async () => {
   try {
-    // 1. Establish SSL Connection to TiDB
     await connectDB();
-    
-    // 2. Setup Relationships
+
     defineAssociations();
-    
-    // 3. Database Synchronization (DISABLED for RU Optimization)
-    // Metadata queries (Introspection) burn RUs. COMMENT THIS OUT if tables already exist.
-    // if (!isProd) { await sequelize.sync({ alter: false }); }
     
     console.log(`Databases connected and synced (Mode: ${isProd ? 'Production' : 'Development'}).`);
 

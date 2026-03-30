@@ -4,7 +4,7 @@ export const findByUserId = async (userId: string) => {
     return await NotificationSettings.findOne({ 
         where: { userId },
         attributes: [
-            'id', // Fetching the primary key ensures the 'upsert' can identify the existing record
+            'id',
             'notifyAssignedTicket', 
             'notifyReportedTicket', 
             'notifyTicketApproved', 
@@ -14,7 +14,6 @@ export const findByUserId = async (userId: string) => {
 };
 
 export const createOrUpdate = async (userId: string, data: Partial<NotificationSettingsCreationAttributes>) => {
-    // TiDB Optimization: upsert uses INSERT ... ON DUPLICATE KEY UPDATE
     const [instance] = await NotificationSettings.upsert({ ...data, userId });
     return instance;
 };

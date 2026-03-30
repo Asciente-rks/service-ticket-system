@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
 import * as roleRepository from '../repositories/role.repository';
 
-// Simple in-memory cache to save TiDB Request Units (RUs)
 let rolesCache: any[] | null = null;
 
 export const getRoles = async (req: Request, res: Response) => {
@@ -10,7 +9,6 @@ export const getRoles = async (req: Request, res: Response) => {
       return res.status(200).json(rolesCache);
     }
 
-    // Use repository instead of raw query for better optimization
     const roles = await roleRepository.findAll();
     rolesCache = roles;
 

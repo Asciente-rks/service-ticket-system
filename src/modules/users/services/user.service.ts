@@ -36,8 +36,6 @@ export const getAllUsers = async (requestingUserRoleId?: string): Promise<UserRe
         return users.map(user => toUserResponseDto(user));
     }
 
-    // Admins, Developers, and Testers only see fellow Staff (Devs/Testers) for reassignment
-    // TiDB Optimization: Filter at the DB level instead of using .filter()
     if (reqRoleId === adminRole || isStaffRole(reqRoleId)) {
         const staffUsers = await userRepository.findAll({
             where: {

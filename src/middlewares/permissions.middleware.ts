@@ -27,28 +27,22 @@ export const isOwnerOrAdmin = async (req: AuthRequest, res: Response, next: Next
         const actorRoleId = req.user.roleId;
         const actorId = String(req.user.id || '');
 
-        // 1. Users can always access their own profile
         if (actorId == userIdToCheck) {
             return next();
         }
 
-        // 2. SuperAdmins can access everything
         if ((actorRoleId || '').toLowerCase() === (ROLES.SUPER_ADMIN || '').toLowerCase()) {
             return next();
         }
 
-        // If checking a specific user, we need to know their role
-        // Optimized: Middleware only needs roleId, not the full user profile
         const targetUser = await userRepository.findBasicById(userIdToCheck);
         if (!targetUser) return res.status(404).json({ message: 'User not found' });
         const targetRoleId = targetUser.roleId;
 
-        // 3. Admins can access Developers and Testers
         if ((actorRoleId || '').toLowerCase() === (ROLES.ADMIN || '').toLowerCase() && isStaffRole(targetRoleId)) {
             return next();
         }
 
-        // 4. Developers and Testers can access fellow Developers and Testers (for reassignment)
         if (isStaffRole(actorRoleId) && isStaffRole(targetRoleId)) {
             return next();
         }
@@ -98,7 +92,6 @@ export const checkUserHierarchy = async (req: AuthRequest, res: Response, next: 
             return next();
         }
 
-        // Optimized: Middleware only needs roleId
         const targetUser = await userRepository.findBasicById(targetUserId);
         if (!targetUser) return res.status(404).json({ message: 'User not found' });
         const targetRoleId = targetUser.roleId;

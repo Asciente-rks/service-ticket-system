@@ -23,7 +23,6 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
     }
 
     if (ticketData.assigneeId) {
-        // Optimized: Basic fetch for assignment validation
         const assignee = await userRepository.findBasicById(ticketData.assigneeId);
         
         if (!assignee) {
@@ -67,8 +66,6 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
         statusId: STATUSES.OPEN
     });
 
-    // Re-fetch the ticket with associations (reporter, assignee, status) 
-    // to ensure toTicketResponseDto doesn't crash on undefined properties
     const ticketWithAssociations = await ticketRepository.findById(ticket.id);
     if (!ticketWithAssociations) throw new Error('Error fetching created ticket');
 
@@ -131,7 +128,6 @@ export const updateTicket = async (id: string, updates: UpdateTicketDto, userId:
     if (updates.assigneeId && ticket.assignedTo !== updates.assigneeId) {
         const newAssigneeId = updates.assigneeId;
         if (newAssigneeId) { 
-            // Optimized: Basic fetch for assignment check
             const assignee = await userRepository.findBasicById(newAssigneeId);
             if (!assignee) {
                 throw new Error('Assignee user not found');
@@ -181,8 +177,7 @@ export const updateTicket = async (id: string, updates: UpdateTicketDto, userId:
     }
 
     await ticketRepository.update(id, updateData);
-    const updatedTicket = await ticketRepository.findById(id); // Keep one fetch to get associations (reporter/assignee names)
-
+    const updatedTicket = await ticketRepository.findById(id); 
     if (updates.statusId && ticket.statusId !== updates.statusId) {
         const statusName = (updatedTicket as any).status.name;
 
