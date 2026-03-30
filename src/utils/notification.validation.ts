@@ -2,10 +2,10 @@ import * as yup from 'yup';
 
 export const updateNotificationSettingsSchema = yup.object({
     body: yup.object({
-        notifyAssignedTicket: yup.boolean(),
-        notifyReportedTicket: yup.boolean(),
-        notifyTicketApproved: yup.boolean(),
-        notifyTicketRejected: yup.boolean(),
+        notifyAssignedTicket: yup.boolean().optional(),
+        notifyReportedTicket: yup.boolean().optional(),
+        notifyTicketApproved: yup.boolean().optional(),
+        notifyTicketRejected: yup.boolean().optional(),
     }).test(
         'at-least-one-field',
         'At least one notification setting must be provided for an update.',

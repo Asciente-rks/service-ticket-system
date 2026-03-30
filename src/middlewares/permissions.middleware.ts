@@ -8,8 +8,6 @@ export const isAdmin = (req: AuthRequest, res: Response, next: NextFunction) => 
     try {
         if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
 
-        console.log(`[DEBUG] isAdmin middleware triggered for: ${req.method} ${req.originalUrl} by ${req.user.email}`);
-
         const userRole = req.user.roleId;
 
         if (!isAdminRole(userRole)) {

@@ -17,5 +17,21 @@ export const getNotificationSettings = async (userId: string) => {
 };
 
 export const updateNotificationSettings = async (userId: string, updates: Partial<NotificationSettings>) => {
-    return await notificationSettingRepository.createOrUpdate(userId, updates);
+    // 1. Fetch current settings (this also handles initialization if record doesn't exist)
+    const settings = await getNotificationSettings(userId);
+
+    // If settings is a Sequelize model instance, we must extract the plain data values.
+    // Spreading a model instance directly (...settings) does NOT include database column values.
+    const currentData = (settings as any).get ? (settings as any).get({ plain: true }) : settings;
+
+    // 2. Explicitly merge the updates into the current settings.
+    const mergedUpdates = {
+        ...currentData,
+        ...updates
+    };
+
+    // 3. Perform the update with the merged data
+    await notificationSettingRepository.createOrUpdate(userId, mergedUpdates);
+
+    return await notificationSettingRepository.findByUserId(userId);
 };
