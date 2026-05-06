@@ -14,6 +14,9 @@ import { notificationRouter } from "./modules/notifications/routes/notification.
 import { initCronJobs } from "./modules/tickets/cron/ticket.cron";
 import { globalLimiter, loginLimiter } from "./middlewares/rate-limit.middleware";
 import { securityHeaders } from "./middlewares/security-headers.middleware";
+import { runSeedRoles } from "./scripts/seed-roles";
+import { runSeedTicketStatuses } from "./scripts/seed-ticket-status";
+import { runSeedUsers } from "./scripts/seed-users";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -98,6 +101,8 @@ app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ message: "Internal server error" });
 });
 
+const SEED_ON_BOOT = (process.env.SEED_ON_BOOT || "true").toLowerCase() !== "false";
+
 const startServer = async () => {
   try {
     await connectDB();
@@ -107,6 +112,19 @@ const startServer = async () => {
     console.log(
       `Databases connected and synced (Mode: ${isProd ? "Production" : "Development"}).`,
     );
+
+    if (SEED_ON_BOOT) {
+      try {
+        await runSeedRoles({ manageConnection: false, silent: true });
+        await runSeedTicketStatuses({ manageConnection: false, silent: true });
+        await runSeedUsers({ manageConnection: false, silent: true });
+        console.log(
+          "Demo data seeded on boot (roles + ticket statuses + 4 demo users).",
+        );
+      } catch (seedError) {
+        console.error("Auto-seed on boot failed (non-fatal):", seedError);
+      }
+    }
 
     initCronJobs();
 

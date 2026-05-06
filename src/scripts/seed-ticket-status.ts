@@ -7,34 +7,49 @@ const SYSTEM_STATUSES = [
   { id: 'abd63053-bd1a-4e6b-9dc5-b10d0ccd2e2e', name: 'Ready for QA' },
   { id: '1be8b313-f7a7-4ad9-8f85-55dc35630b82', name: 'Error Persists' },
   { id: '256698fa-3abb-4856-85be-b4fee7397a47', name: 'Resolved' },
-  { id: 'fcb58a0d-5d9d-4efa-869b-c571400c91c9', name: 'Closed' }
+  { id: 'fcb58a0d-5d9d-4efa-869b-c571400c91c9', name: 'Closed' },
 ];
 
-const seedTicketStatuses = async () => {
-  try {
+export interface SeedOptions {
+  manageConnection?: boolean;
+  silent?: boolean;
+}
+
+export const runSeedTicketStatuses = async (
+  opts: SeedOptions = {},
+): Promise<void> => {
+  const { manageConnection = true, silent = false } = opts;
+  if (manageConnection) {
     await connectDB();
+  }
 
-    console.log('--- STARTING TICKET STATUS SEEDING (UPSERT) ---');
+  if (!silent) console.log('--- STARTING TICKET STATUS SEEDING (UPSERT) ---');
 
-    for (const statusData of SYSTEM_STATUSES) {
-      const [status, created] = await TicketStatus.upsert({
-        id: statusData.id,
-        name: statusData.name,
-      });
+  for (const statusData of SYSTEM_STATUSES) {
+    const [status, created] = await TicketStatus.upsert({
+      id: statusData.id,
+      name: statusData.name,
+    });
 
-      if (created) {
-        console.log(`CREATED: ${status.name} with ID: ${status.id}`);
-      } else {
-        console.log(`EXISTS/UPDATED: ${status.name} with ID: ${status.id}`);
-      }
+    if (!silent) {
+      console.log(
+        `${created ? 'CREATED' : 'EXISTS/UPDATED'}: ${status.name} with ID: ${status.id}`,
+      );
     }
+  }
 
+  if (!silent) console.log('--- TICKET STATUS SEEDING COMPLETE ---');
+
+  if (manageConnection) {
     await sequelize.close();
-    process.exit(0);
-  } catch (error) {
-    console.error('FATAL: Unable to seed ticket statuses:', error);
-    process.exit(1);
   }
 };
 
-seedTicketStatuses();
+if (require.main === module) {
+  runSeedTicketStatuses()
+    .then(() => process.exit(0))
+    .catch((error) => {
+      console.error('FATAL: Unable to seed ticket statuses:', error);
+      process.exit(1);
+    });
+}
