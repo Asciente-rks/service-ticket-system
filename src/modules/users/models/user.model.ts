@@ -9,7 +9,7 @@ export interface UserAttributes {
   password: string;
   createdAt?: Date;
   updatedAt?: Date;
-  
+
 }
 
 export interface UserCreationAttributes extends Optional<UserAttributes, 'id' | 'createdAt' | 'updatedAt'> {}

@@ -7,6 +7,6 @@ export const login = async (req: Request, res: Response) => {
       const { user, token } = await authService.login(email, password);
       if (!user || !token) {
         return res.status(401).json({ message: "Invalid email or password" });
-      }    
+      }
       res.status(200).json({ user, token });
 }

@@ -13,11 +13,11 @@ export interface NotificationSettingsAttributes {
 }
 
 export interface NotificationSettingsCreationAttributes extends Optional<
-    NotificationSettingsAttributes, 
-    'id' | 'createdAt' | 'updatedAt' | 
-    'notifyAssignedTicket' | 
-    'notifyReportedTicket' | 
-    'notifyTicketApproved' | 
+    NotificationSettingsAttributes,
+    'id' | 'createdAt' | 'updatedAt' |
+    'notifyAssignedTicket' |
+    'notifyReportedTicket' |
+    'notifyTicketApproved' |
     'notifyTicketRejected'
 > {}
 

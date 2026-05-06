@@ -7,7 +7,7 @@ export interface UserResponseDto {
     name: string;
     email: string;
     role?: { id: string; name: string };
-    // Using Partial to only include some fields for the overview
+
     reportedTickets?: Partial<Ticket>[];
     assignedTickets?: Partial<Ticket>[];
     notifications?: Partial<Notification>[];

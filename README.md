@@ -367,27 +367,55 @@ The frontend's `src/services/api.ts` is a thin axios wrapper that injects the JW
 
 ## Authentication & Credentials
 
-### Seeded super-admin
+### Seeded accounts
 
-`npm run seed:users` (or `npm run db:reset` which runs all seeders) creates the super-admin:
+`npm run seed:users` (or `npm run db:reset` which runs all seeders) seeds **four** accounts. All non-superadmin accounts share the password `Password123!` and are exposed via the login page's Dev Tools quick-login.
 
 | Email | Role | Password |
 |---|---|---|
-| `superadmin@test.com` | SuperAdmin | `password123` |
+| `admin@test.com` | Admin | `Password123!` |
+| `developer@test.com` | Developer | `Password123!` |
+| `tester@test.com` | Tester | `Password123!` |
 
-> The seeder uses `User.upsert`, so re-running it resets the password to `password123` — useful when you forget your local credentials.
+> The seeded `superadmin@test.com` account exists in the database for owner-only operations. Its credentials are intentionally **not** published in the README or in the Dev Tools quick-login panel — only the project owner has them.
+>
+> The seeder uses `User.upsert`, so re-running it resets the passwords on every seed — useful when you forget your local credentials.
+
+### Role hierarchy (enforced backend-side)
+
+`src/middlewares/permissions.middleware.ts` and `src/middlewares/role.utils.ts` enforce the hierarchy on every list/update/delete:
+
+- **SuperAdmin** — sees and manages everyone.
+- **Admin** — `getAllUsers` filters the response to only Developers and Testers, so admins never see other admins or the superadmin in the team list. `checkUserHierarchy` blocks admins from updating or deleting other admins / the superadmin.
+- **Developer / Tester** — can only interact with fellow developers/testers.
+
+### Dev Tools quick-login
+
+The login page ships with a floating **⚙ Dev Tools** button in the bottom-right corner. Click it to one-shot sign in as **Admin**, **Developer**, or **Tester** through the real `/auth/login` endpoint — handy for portfolio reviewers who don't want to type anything. The superadmin is intentionally absent from the panel; only the owner can sign in as superadmin.
 
 ### Adding more users
 
-Sign in as the super-admin and use the **User Management** page to create users with any role. New users get default `notification_settings` (all `true`) auto-created on first request.
+Sign in as an admin (or higher) and use the **User Management** page to create users. New users get default `notification_settings` (all `true`) auto-created on first request.
 
 ### Self-registration
 
-This system has **no public signup** — accounts are created by admins/super-admins via the dashboard. To onboard yourself:
+This system has **no public signup** — accounts are created by admins/super-admins via the dashboard.
 
-1. Run `npm run seed:users` locally.
-2. Sign in as `superadmin@test.com` / `password123`.
-3. Create your real user via **User Management → New User**.
+---
+
+## Hardening
+
+Because the live demo is reachable by anyone on the public internet, the API and frontend ship a few defenses:
+
+- **Per-IP rate limiting** — `src/middlewares/rate-limit.middleware.ts` keeps an in-memory bucket per client IP. `/auth/login` is capped at 5 attempts per 60-second window; everything else is capped at 120/min. Hitting the limit returns `429` with `Retry-After`, `X-RateLimit-Limit`, and `X-RateLimit-Remaining` headers.
+- **Hardened security headers** — `helmet()` is layered with a `securityHeaders` middleware that sets `Cross-Origin-Resource-Policy: cross-origin`, `Permissions-Policy`, `X-XSS-Protection: 0`, and a generic `Server: ServiceTicket` to mask the runtime fingerprint. CSP defaults from helmet apply.
+- **CORS allowlist** — driven by the `CORS_ORIGINS` env var (comma-separated). Defaults to local Vite dev origins. The allowlist rejects unlisted origins instead of echoing them back.
+- **Generic 500s** — the Express error handler and the login controller no longer leak `error.message` or stack traces; clients always see `{ message: "Internal server error" }` (or the equivalent module-specific message).
+- **Frontend bundle hardening** — `src/utils/security.ts` runs at boot in production builds:
+  - Replaces every `console.*` method with a no-op and clears the console every 1.5s, so opening DevTools shows nothing useful.
+  - Disables the React DevTools global hook so the React component tree isn't browsable.
+  - **Does NOT block F12, right-click, or `Ctrl+Shift+I`** — the dev tools panel still opens, but the code inside is opaque (no source maps, hashed chunk filenames, minifier-mangled identifiers).
+- **Vite production build** — `vite.config.ts` disables source maps and rewrites entry / chunk / asset filenames as content hashes.
 
 ---
 

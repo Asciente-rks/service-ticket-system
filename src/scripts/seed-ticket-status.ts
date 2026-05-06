@@ -15,7 +15,7 @@ const seedTicketStatuses = async () => {
     await connectDB();
 
     console.log('--- STARTING TICKET STATUS SEEDING (UPSERT) ---');
-    
+
     for (const statusData of SYSTEM_STATUSES) {
       const [status, created] = await TicketStatus.upsert({
         id: statusData.id,

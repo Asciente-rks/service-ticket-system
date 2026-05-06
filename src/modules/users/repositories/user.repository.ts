@@ -51,7 +51,7 @@ export const findById = async (id: string) => {
 };
 
 export const findByEmail = async (email: string) => {
-    return await User.unscoped().findOne({ 
+    return await User.unscoped().findOne({
         where: { email },
         include: [{ model: Role, as: 'role', attributes: ['name'] }]
     });

@@ -14,7 +14,7 @@ const seedRoles = async () => {
     await connectDB();
 
     console.log('--- STARTING ROLE SEEDING (UPSERT) ---');
-    
+
     for (const roleData of SYSTEM_ROLES) {
       const [role, created] = await Role.upsert({
         id: roleData.id,
@@ -29,7 +29,7 @@ const seedRoles = async () => {
     }
 
     console.log('--- SEEDING COMPLETE ---');
-    
+
     await sequelize.close();
     process.exit(0);
   } catch (error) {

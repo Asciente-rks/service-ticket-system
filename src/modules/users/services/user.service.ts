@@ -80,7 +80,7 @@ export const updateUser = async (id: string, updates: UpdateUserDto): Promise<Us
 
     const user = await userRepository.update(id, updates);
     if (!user) return null;
-    
+
     return toUserResponseDto(user);
   } catch (error) {
     throw new Error(`Error updating user: ${error}`);

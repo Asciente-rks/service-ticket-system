@@ -1,13 +1,13 @@
 import { NotificationSettings, NotificationSettingsCreationAttributes } from '../models/notification-settings.model';
 
 export const findByUserId = async (userId: string) => {
-    return await NotificationSettings.findOne({ 
+    return await NotificationSettings.findOne({
         where: { userId },
         attributes: [
             'id',
-            'notifyAssignedTicket', 
-            'notifyReportedTicket', 
-            'notifyTicketApproved', 
+            'notifyAssignedTicket',
+            'notifyReportedTicket',
+            'notifyTicketApproved',
             'notifyTicketRejected'
         ]
     });
