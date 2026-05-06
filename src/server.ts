@@ -23,6 +23,11 @@ const DEFAULT_CORS_ORIGINS = [
   "http://localhost:5173",
   "http://127.0.0.1:5173",
   "http://localhost:4173",
+  "https://service-ticket-system-frontend.vercel.app",
+];
+
+const DEFAULT_CORS_PATTERNS: RegExp[] = [
+  /^https:\/\/service-ticket-system-frontend(-[a-z0-9-]+)?\.vercel\.app$/,
 ];
 
 const ALLOWED_CORS_ORIGINS = (process.env.CORS_ORIGINS || "")
@@ -33,6 +38,16 @@ const ALLOWED_CORS_ORIGINS = (process.env.CORS_ORIGINS || "")
 const corsOriginAllowlist = ALLOWED_CORS_ORIGINS.length
   ? ALLOWED_CORS_ORIGINS
   : DEFAULT_CORS_ORIGINS;
+
+const corsOriginPatterns: RegExp[] = ALLOWED_CORS_ORIGINS.length
+  ? []
+  : DEFAULT_CORS_PATTERNS;
+
+const isOriginAllowed = (origin: string): boolean => {
+  if (corsOriginAllowlist.includes("*")) return true;
+  if (corsOriginAllowlist.includes(origin)) return true;
+  return corsOriginPatterns.some((pattern) => pattern.test(origin));
+};
 
 app.set("trust proxy", 1);
 
@@ -49,8 +64,7 @@ app.use(
   cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
-      if (corsOriginAllowlist.includes("*")) return callback(null, true);
-      if (corsOriginAllowlist.includes(origin)) return callback(null, true);
+      if (isOriginAllowed(origin)) return callback(null, true);
       return callback(new Error(`Origin ${origin} is not allowed by CORS`));
     },
     credentials: true,
