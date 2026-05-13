@@ -38,7 +38,7 @@ Service Ticket System is a four-role full-stack ticketing application with a rea
 ## What It Does
 
 - **Four-role access control** — `SUPER_ADMIN`, `ADMIN`, `TESTER`, `DEVELOPER`, each with distinct capabilities enforced server-side by `permissions.middleware.ts`.
-- **Six ticket statuses** — `Open → In Progress → Resolved → Pending Approval → Approved / Rejected`. Testers submit; developers work; admins triage; approvers sign off.
+- **Six ticket statuses** — `Open → In Progress → Ready for QA → Resolved / Error Persists → Closed`. Tester reports a defect; developer moves it through the workflow; admin/SuperAdmin approves (→ `Resolved`) or rejects (→ `Error Persists` for rework); admin eventually closes the ticket.
 - **Per-ticket approval audit** — every approve/reject decision is a separate `APPROVAL` row with approver id, status, comment, and timestamp. Multiple decisions over a ticket's lifetime are preserved — full audit trail.
 - **Notification preferences** — every user has a 1:1 `NOTIFICATION_SETTINGS` row (auto-created on user creation, defaults all true) covering assigned-ticket, ticket-updated, approved, and rejected events.
 - **In-process SLA cron** — `node-cron` fires inside the same Express process; no separate worker service. Scans for stale/overdue tickets and emits notifications on schedule.
@@ -129,23 +129,23 @@ sequenceDiagram
     participant DB as MySQL
 
     Tester->>API: POST /tickets { title, description, priority }
-    API->>DB: INSERT ticket (status=Open, reportedBy=tester)
+    API->>DB: INSERT ticket (statusId=Open, reportedBy=tester)
     API-->>Tester: 201 ticket created
 
-    Admin->>API: PUT /tickets/:id { assignedTo, status=In Progress }
+    Admin->>API: PATCH /tickets/:id { assignedTo, statusId=In Progress }
     API->>DB: UPDATE ticket + INSERT notification for developer
     API-->>Admin: 200 updated
 
-    Developer->>API: PUT /tickets/:id { status=Resolved }
+    Developer->>API: PATCH /tickets/:id { statusId=Ready for QA }
     API->>DB: UPDATE ticket + INSERT notification for admin
-    API-->>Developer: 200 resolved
+    API-->>Developer: 200 ready for review
 
     Approver->>API: POST /tickets/:id/approval { status=Approved, comment }
-    API->>DB: INSERT approval + UPDATE ticket status=Approved
-    API->>DB: INSERT notification for reporter + developer
+    API->>DB: INSERT approval + UPDATE ticket statusId=Resolved
+    API->>DB: INSERT notification for reporter (gated by NOTIFICATION_SETTINGS)
     API-->>Approver: 201 approval recorded
 
-    Note over Approver,DB: If Rejected: status → Rejected,<br/>developer re-assigned for next cycle
+    Note over Approver,DB: If status=Rejected: ticket statusId → Error Persists,<br/>developer iterates and re-submits for QA.
 ```
 
 ### Status state machine
@@ -153,14 +153,16 @@ sequenceDiagram
 ```mermaid
 stateDiagram-v2
     [*] --> Open: Tester creates ticket
-    Open --> InProgress: Admin assigns + updates status
-    InProgress --> Resolved: Developer marks resolved
-    Resolved --> PendingApproval: System or admin transitions
-    PendingApproval --> Approved: Admin / Super Admin approves
-    PendingApproval --> Rejected: Admin / Super Admin rejects
-    Rejected --> InProgress: Re-assigned for rework
-    Approved --> [*]
+    Open --> InProgress: Developer picks up / Admin assigns
+    InProgress --> ReadyForQA: Developer marks complete
+    ReadyForQA --> Resolved: Admin / Super Admin approves<br/>(Approval row status=Approved)
+    ReadyForQA --> ErrorPersists: Admin / Super Admin rejects<br/>(Approval row status=Rejected)
+    ErrorPersists --> InProgress: Developer iterates
+    Resolved --> Closed: Admin closes
+    Closed --> [*]
 ```
+
+> Note: `Approved` and `Rejected` are values on the `APPROVAL` row, not ticket statuses. The ticket itself transitions to `Resolved` (on approve) or `Error Persists` (on reject) — see `src/modules/tickets/services/approval.service.ts`.
 
 ---
 
@@ -178,7 +180,7 @@ stateDiagram-v2
 | Password | **bcryptjs** | Pure JS, no native build step |
 | Validation | **Yup** | Schema-first, composable |
 | Scheduler | **node-cron** | In-process cron; no extra service |
-| Email | nodemailer | Notification emails |
+| Notifications | In-app only (DB rows) | `NOTIFICATION` and `NOTIFICATION_SETTINGS` tables — no email layer wired up |
 | Security | helmet · cors · rate-limit | CORS allow-list, security headers, per-route limiters |
 | Dev | nodemon · ts-node · typescript 5 | Hot reload, no build step in dev |
 
@@ -256,6 +258,7 @@ erDiagram
         uuid id PK
         uuid userId FK
         bool notifyAssignedTicket
+        bool notifyReportedTicketUpdated
         bool notifyTicketApproved
         bool notifyTicketRejected
     }
@@ -390,31 +393,32 @@ The frontend is a separate repo deployed independently to Vercel. It consumes th
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
 | POST | `/auth/login` | none | Email + password → JWT |
-| POST | `/auth/register` | none | Create account (dev/open registration) |
+
+> Accounts are created via `POST /users` (admin-gated) or seeded on boot. There is **no** public `/auth/register` endpoint.
 
 ### Users
 
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
-| GET | `/users` | ADMIN+ | List all users |
-| GET | `/users/:id` | ADMIN+ | Get a single user |
-| POST | `/users` | SUPER_ADMIN / ADMIN | Create user with role assignment |
-| PUT | `/users/:id` | SUPER_ADMIN / ADMIN | Update user details |
-| DELETE | `/users/:id` | SUPER_ADMIN | Hard delete user |
-| GET | `/users/:id/role` | session | Fetch the user's role |
-| GET | `/users/:id/notification-settings` | session | Get notification preferences |
-| PUT | `/users/:id/notification-settings` | session | Update notification preferences |
+| GET | `/users` | session + role check (ADMIN / DEVELOPER / TESTER) | List users |
+| GET | `/users/:id` | session + owner-or-admin | Get a single user |
+| POST | `/users` | session + admin | Create user with role assignment |
+| PUT | `/users/:id` | session + owner-or-admin + role-hierarchy check | Update user details |
+| DELETE | `/users/:id` | session + owner-or-admin + role-hierarchy check | Hard delete user |
+| GET | `/users/roles` | none | List all roles (lookup table) |
+| GET | `/users/notification-settings` | session | Get the **current user's** notification preferences |
+| PATCH | `/users/notification-settings` | session | Update the current user's notification preferences |
 
 ### Tickets
 
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
-| GET | `/tickets` | session | List tickets (role-filtered) |
+| GET | `/tickets/statuses` | none | List all ticket statuses (no auth — reference data) |
+| GET | `/tickets` | session | List tickets (role-filtered server-side) |
 | GET | `/tickets/:id` | session | Ticket detail |
-| POST | `/tickets` | TESTER / ADMIN+ | Create a ticket |
-| PUT | `/tickets/:id` | ADMIN+ / owner | Update status, assignee, details |
-| POST | `/tickets/:id/approval` | ADMIN+ | Approve or reject a resolved ticket |
-| GET | `/tickets/statuses` | session | List all ticket statuses |
+| POST | `/tickets` | session + role check (SUPER_ADMIN / ADMIN / TESTER) | Create a ticket |
+| PATCH | `/tickets/:id` | session | Update status, assignee, details (deeper checks live in the service layer) |
+| POST | `/tickets/:id/approval` | session + role check (SUPER_ADMIN / ADMIN) | Approve (→ Resolved) or reject (→ Error Persists) a Ready-for-QA ticket |
 
 ### Notifications
 
