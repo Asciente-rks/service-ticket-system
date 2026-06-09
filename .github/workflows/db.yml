@@ -3,6 +3,10 @@ name: Database (migrate / seed)
 # Manually-triggered schema migration + reference data seeding against the
 # managed database (TiDB Cloud / MySQL). Run once after first configuring
 # secrets, and again whenever the data model changes.
+#
+# Note: we compile to JS and run the compiled output with `node` so we never
+# depend on ts-node being present at runtime. NODE_ENV is only set on the run
+# steps (not during install) so devDependencies still install for the build.
 
 on:
   workflow_dispatch:
@@ -18,7 +22,6 @@ on:
           - both
 
 env:
-  NODE_ENV: production
   SKIP_DB_BOOTSTRAP: 'true'
   DB_SSL: 'true'
   DB_HOST: ${{ secrets.DB_HOST }}
@@ -40,13 +43,23 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install dependencies
+      - name: Install dependencies (incl. dev)
         run: npm ci
+
+      - name: Build TypeScript
+        run: npm run build
 
       - name: Run schema migration
         if: ${{ inputs.action == 'migrate' || inputs.action == 'both' }}
-        run: npm run db:migrate
+        env:
+          NODE_ENV: production
+        run: node dist/scripts/migrate.js
 
       - name: Seed roles, statuses, demo org + users
         if: ${{ inputs.action == 'seed' || inputs.action == 'both' }}
-        run: npm run seed:all
+        env:
+          NODE_ENV: production
+        run: |
+          node dist/scripts/seed-roles.js
+          node dist/scripts/seed-ticket-status.js
+          node dist/scripts/seed-users.js
