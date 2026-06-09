@@ -1,0 +1,197 @@
+name: Deploy Backend to AWS Lambda
+
+# Zero-cost CI/CD: builds the TypeScript, packages a zip, and creates/updates a
+# Lambda function exposed via a Lambda Function URL (no API Gateway = no extra
+# cost). Also wires a daily EventBridge schedule for the SLA stale-ticket job.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+  FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME || 'service-ticket-system-api' }}
+  ROLE_NAME: service-ticket-system-lambda-role
+  SCHEDULE_RULE: service-ticket-system-sla
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies (incl. dev)
+        run: npm ci
+
+      - name: Build TypeScript
+        run: npm run build
+
+      - name: Install production-only dependencies
+        run: |
+          rm -rf node_modules
+          npm ci --omit=dev
+
+      - name: Package Lambda zip
+        run: |
+          zip -r function.zip dist node_modules package.json > /dev/null
+          echo "Zip size: $(du -h function.zip | cut -f1)"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Ensure IAM execution role
+        id: role
+        run: |
+          set -euo pipefail
+          if [ -n "${{ secrets.LAMBDA_ROLE_ARN }}" ]; then
+            echo "Using provided LAMBDA_ROLE_ARN."
+            echo "arn=${{ secrets.LAMBDA_ROLE_ARN }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          cat > trust.json <<'JSON'
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow", "Principal": { "Service": "lambda.amazonaws.com" }, "Action": "sts:AssumeRole" }
+            ]
+          }
+          JSON
+          if ! aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
+            echo "Creating IAM role $ROLE_NAME"
+            aws iam create-role --role-name "$ROLE_NAME" --assume-role-policy-document file://trust.json
+            aws iam attach-role-policy --role-name "$ROLE_NAME" \
+              --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+            echo "Waiting for IAM role to propagate..."
+            sleep 15
+          fi
+          ROLE_ARN=$(aws iam get-role --role-name "$ROLE_NAME" --query 'Role.Arn' --output text)
+          echo "arn=$ROLE_ARN" >> "$GITHUB_OUTPUT"
+
+      - name: Build environment variables file
+        run: |
+          jq -n \
+            --arg NODE_ENV "production" \
+            --arg SKIP_DB_BOOTSTRAP "true" \
+            --arg SEED_ON_BOOT "false" \
+            --arg DB_SSL "true" \
+            --arg SERVICE_NAME "service-ticket-system" \
+            --arg DB_HOST "${{ secrets.DB_HOST }}" \
+            --arg DB_PORT "${{ secrets.DB_PORT }}" \
+            --arg DB_NAME "${{ secrets.DB_NAME }}" \
+            --arg DB_USER "${{ secrets.DB_USER }}" \
+            --arg DB_PASSWORD "${{ secrets.DB_PASSWORD }}" \
+            --arg JWT_SECRET "${{ secrets.JWT_SECRET }}" \
+            --arg JWT_EXPIRES_IN "${{ secrets.JWT_EXPIRES_IN || '8h' }}" \
+            --arg CORS_ORIGINS "${{ secrets.CORS_ORIGINS }}" \
+            --arg EMAIL_USER "${{ secrets.EMAIL_USER }}" \
+            --arg EMAIL_PASS "${{ secrets.EMAIL_PASS }}" \
+            --arg EXPOSE_OTP "${{ secrets.EXPOSE_OTP || 'false' }}" \
+            '{Variables: ([
+              {NODE_ENV:$NODE_ENV, SKIP_DB_BOOTSTRAP:$SKIP_DB_BOOTSTRAP, SEED_ON_BOOT:$SEED_ON_BOOT, DB_SSL:$DB_SSL, SERVICE_NAME:$SERVICE_NAME,
+               DB_HOST:$DB_HOST, DB_PORT:$DB_PORT, DB_NAME:$DB_NAME, DB_USER:$DB_USER, DB_PASSWORD:$DB_PASSWORD,
+               JWT_SECRET:$JWT_SECRET, JWT_EXPIRES_IN:$JWT_EXPIRES_IN, CORS_ORIGINS:$CORS_ORIGINS,
+               EMAIL_USER:$EMAIL_USER, EMAIL_PASS:$EMAIL_PASS,
+               EXPOSE_OTP:$EXPOSE_OTP}
+              ] | add | with_entries(select(.value != "")))}' > env.json
+          echo "Built env.json with $(jq '.Variables | length' env.json) variables."
+
+      - name: Create or update Lambda function
+        run: |
+          set -euo pipefail
+          ROLE_ARN="${{ steps.role.outputs.arn }}"
+          if aws lambda get-function --function-name "$FUNCTION_NAME" >/dev/null 2>&1; then
+            echo "Updating existing function code..."
+            aws lambda update-function-code \
+              --function-name "$FUNCTION_NAME" \
+              --zip-file fileb://function.zip >/dev/null
+            aws lambda wait function-updated --function-name "$FUNCTION_NAME"
+            echo "Updating function configuration..."
+            aws lambda update-function-configuration \
+              --function-name "$FUNCTION_NAME" \
+              --runtime nodejs20.x \
+              --handler dist/lambda.handler \
+              --timeout 30 \
+              --memory-size 512 \
+              --environment file://env.json >/dev/null
+            aws lambda wait function-updated --function-name "$FUNCTION_NAME"
+          else
+            echo "Creating new function..."
+            aws lambda create-function \
+              --function-name "$FUNCTION_NAME" \
+              --runtime nodejs20.x \
+              --handler dist/lambda.handler \
+              --role "$ROLE_ARN" \
+              --timeout 30 \
+              --memory-size 512 \
+              --environment file://env.json \
+              --zip-file fileb://function.zip >/dev/null
+            aws lambda wait function-active --function-name "$FUNCTION_NAME"
+          fi
+
+      - name: Ensure public Function URL
+        id: url
+        run: |
+          set -euo pipefail
+          # CORS is handled by the Express app (flexible allow-list incl. Vercel
+          # preview regex). We intentionally do NOT set Function URL CORS to avoid
+          # duplicate Access-Control-* headers — AWS forwards OPTIONS to Express.
+          if aws lambda get-function-url-config --function-name "$FUNCTION_NAME" >/dev/null 2>&1; then
+            aws lambda update-function-url-config \
+              --function-name "$FUNCTION_NAME" \
+              --auth-type NONE >/dev/null
+          else
+            aws lambda create-function-url-config \
+              --function-name "$FUNCTION_NAME" \
+              --auth-type NONE >/dev/null
+            aws lambda add-permission \
+              --function-name "$FUNCTION_NAME" \
+              --statement-id FunctionURLAllowPublicAccess \
+              --action lambda:InvokeFunctionUrl \
+              --principal '*' \
+              --function-url-auth-type NONE >/dev/null || true
+          fi
+          FN_URL=$(aws lambda get-function-url-config --function-name "$FUNCTION_NAME" --query 'FunctionUrl' --output text)
+          echo "url=$FN_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure daily SLA cron (EventBridge)
+        run: |
+          set -euo pipefail
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          FN_ARN="arn:aws:lambda:${AWS_REGION}:${ACCOUNT_ID}:function:${FUNCTION_NAME}"
+          RULE_ARN="arn:aws:events:${AWS_REGION}:${ACCOUNT_ID}:rule/${SCHEDULE_RULE}"
+          # 09:00 UTC daily
+          aws events put-rule --name "$SCHEDULE_RULE" --schedule-expression "cron(0 9 * * ? *)" --state ENABLED >/dev/null
+          aws lambda add-permission \
+            --function-name "$FUNCTION_NAME" \
+            --statement-id "${SCHEDULE_RULE}-invoke" \
+            --action lambda:InvokeFunction \
+            --principal events.amazonaws.com \
+            --source-arn "$RULE_ARN" >/dev/null 2>&1 || true
+          aws events put-targets --rule "$SCHEDULE_RULE" \
+            --targets "Id=1,Arn=${FN_ARN},Input='{\"__cron\":true}'" >/dev/null
+
+      - name: Output deployment summary
+        run: |
+          {
+            echo "## Backend deployed to AWS Lambda";
+            echo "";
+            echo "**Function URL:** ${{ steps.url.outputs.url }}";
+            echo "";
+            echo "Set this as \`VITE_API_URL\` in the frontend (Vercel) and as \`CORS_ORIGINS\` allow-list source.";
+            echo "Health check: \`${{ steps.url.outputs.url }}health\`";
+          } >> "$GITHUB_STEP_SUMMARY"
