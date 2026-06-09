@@ -11,22 +11,26 @@ import { STATUSES } from '../../../config/statuses';
 
 const VALID_PRIORITIES = ['Low', 'Medium', 'High'];
 
-export const createTicket = async (ticketData: CreateTicketDto, reporterId: string, reporterRoleId: string): Promise<TicketResponseDto> => {
+export const createTicket = async (ticketData: CreateTicketDto, reporterId: string, reporterRoleId: string, organizationId: string): Promise<TicketResponseDto> => {
     if (!VALID_PRIORITIES.includes(ticketData.priority)) {
         throw new Error(`Invalid priority. Allowed values: ${VALID_PRIORITIES.join(', ')}`);
     }
-    
+
     const openStatus = await ticketStatusRepository.findByName('Open');
-    
+
     if (!openStatus) {
         throw new Error('Default ticket status "Open" not found. Please run the seed script.');
     }
 
     if (ticketData.assigneeId) {
         const assignee = await userRepository.findBasicById(ticketData.assigneeId);
-        
+
         if (!assignee) {
             throw new Error('Assignee user not found.');
+        }
+
+        if (String((assignee as any).organizationId) !== String(organizationId)) {
+            throw new Error('Assignee must belong to your organization.');
         }
 
         const assigneeRoleId = (assignee.roleId || '').toLowerCase();
@@ -58,6 +62,7 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
     }
 
     const ticket = await ticketRepository.create({
+        organizationId,
         title: ticketData.title,
         description: ticketData.description,
         priority: ticketData.priority,
@@ -77,6 +82,7 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
             notificationService.createNotification({
                 userId: ticket.assignedTo,
                 ticketId: ticket.id,
+                organizationId,
                 message: `You have been assigned a new ticket: ${ticket.title}`
             }).catch(err => console.error("Notification failed:", err));
         }
@@ -84,25 +90,51 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
     return createdTicket;
 }
 
-export const getAllTickets = async (userId: string, roleId: string): Promise<TicketResponseDto[]> => {
-    const whereClause = {};
+export const getAllTickets = async (userId: string, roleId: string, organizationId: string): Promise<TicketResponseDto[]> => {
+    const whereClause = { organizationId };
 
     const tickets = await ticketRepository.findAll(whereClause);
 
     return tickets.map(ticket => toTicketResponseDto(ticket));
 };
 
-export const getTicketById = async (id: string): Promise<TicketResponseDto | null> => {
+export const getTicketById = async (id: string, organizationId: string): Promise<TicketResponseDto | null> => {
     const ticket = await ticketRepository.findById(id);
 
     if (!ticket) return null;
+    if (String((ticket as any).organizationId) !== String(organizationId)) return null;
 
     return toTicketResponseDto(ticket);
 }
 
-export const updateTicket = async (id: string, updates: UpdateTicketDto, userId: string, roleId: string): Promise<TicketResponseDto | null> => {
+export const deleteTicket = async (id: string, organizationId: string, userId: string, roleId: string): Promise<boolean> => {
+    const ticket = await ticketRepository.findById(id);
+    if (!ticket) return false;
+
+    // Tenant isolation: never act on another organization's ticket.
+    if (String((ticket as any).organizationId) !== String(organizationId)) return false;
+
+    const actorRole = (roleId || '').toLowerCase();
+    const isAdmin =
+        actorRole === ROLES.SUPER_ADMIN.toLowerCase() ||
+        actorRole === ROLES.ADMIN.toLowerCase();
+    const isReporter = String(ticket.reportedBy) === String(userId);
+
+    // Admins/SuperAdmins can delete any ticket in their org; reporters can delete their own.
+    if (!isAdmin && !isReporter) {
+        const err: any = new Error('You are not allowed to delete this ticket.');
+        err.statusCode = 403;
+        throw err;
+    }
+
+    await ticketRepository.remove(id);
+    return true;
+};
+
+export const updateTicket = async (id: string, updates: UpdateTicketDto, userId: string, roleId: string, organizationId: string): Promise<TicketResponseDto | null> => {
     const ticket = await ticketRepository.findById(id);
     if (!ticket) return null;
+    if (String((ticket as any).organizationId) !== String(organizationId)) return null;
 
     if (updates.priority && !VALID_PRIORITIES.includes(updates.priority)) {
         throw new Error(`Invalid priority. Allowed values: ${VALID_PRIORITIES.join(', ')}`);
@@ -127,10 +159,14 @@ export const updateTicket = async (id: string, updates: UpdateTicketDto, userId:
 
     if (updates.assigneeId && ticket.assignedTo !== updates.assigneeId) {
         const newAssigneeId = updates.assigneeId;
-        if (newAssigneeId) { 
+        if (newAssigneeId) {
             const assignee = await userRepository.findBasicById(newAssigneeId);
             if (!assignee) {
                 throw new Error('Assignee user not found');
+            }
+
+            if (String((assignee as any).organizationId) !== String(organizationId)) {
+                throw new Error('Assignee must belong to your organization.');
             }
 
             const assigneeRoleId = (assignee.roleId || '').toLowerCase();
@@ -164,6 +200,7 @@ export const updateTicket = async (id: string, updates: UpdateTicketDto, userId:
                 await notificationService.createNotification({
                     userId: newAssigneeId,
                     ticketId: ticket.id,
+                    organizationId,
                     message: `You have been assigned a ticket: ${ticket.title}`
                 });
             }
@@ -187,6 +224,7 @@ export const updateTicket = async (id: string, updates: UpdateTicketDto, userId:
                 await notificationService.createNotification({
                     userId: ticket.reportedBy,
                     ticketId: ticket.id,
+                    organizationId,
                     message: `The status of your ticket "${ticket.title}" has been updated to ${statusName}.`
                 });
             }
@@ -198,6 +236,7 @@ export const updateTicket = async (id: string, updates: UpdateTicketDto, userId:
                 await notificationService.createNotification({
                     userId: ticket.assignedTo,
                     ticketId: ticket.id,
+                    organizationId,
                     message: `The status of ticket "${ticket.title}" assigned to you has been updated to ${statusName}.`
                 });
             }

@@ -3,7 +3,8 @@ import { sequelize } from '../../../config/db';
 
 export interface UserAttributes {
   id: string;
-  roleId: string;
+  roleId: string | null;
+  organizationId: string | null;
   name: string;
   email: string;
   password: string;
@@ -12,11 +13,12 @@ export interface UserAttributes {
 
 }
 
-export interface UserCreationAttributes extends Optional<UserAttributes, 'id' | 'createdAt' | 'updatedAt'> {}
+export interface UserCreationAttributes extends Optional<UserAttributes, 'id' | 'roleId' | 'organizationId' | 'createdAt' | 'updatedAt'> {}
 
 export class User extends Model<UserAttributes, UserCreationAttributes> implements UserAttributes {
   declare id: string;
-  declare roleId: string;
+  declare roleId: string | null;
+  declare organizationId: string | null;
   declare name: string;
   declare email: string;
   declare password: string;
@@ -34,10 +36,19 @@ User.init(
     },
     roleId: {
       type: DataTypes.UUID,
-      allowNull: false,
+      allowNull: true,
       field: 'role_id',
       references: {
         model: 'roles',
+        key: 'id',
+      },
+    },
+    organizationId: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      field: 'organization_id',
+      references: {
+        model: 'organizations',
         key: 'id',
       },
     },

@@ -4,6 +4,7 @@ import { sequelize } from '../../../config/db';
 export interface NotificationAttributes {
     id: string;
     userId: string;
+    organizationId?: string | null;
     message: string;
     read: boolean;
     ticketId?: string;
@@ -11,11 +12,12 @@ export interface NotificationAttributes {
     updatedAt?: Date;
 }
 
-export interface NotificationCreationAttributes extends Optional<NotificationAttributes, 'id' | 'read' | 'createdAt' | 'updatedAt'> {}
+export interface NotificationCreationAttributes extends Optional<NotificationAttributes, 'id' | 'read' | 'organizationId' | 'createdAt' | 'updatedAt'> {}
 
 export class Notification extends Model<NotificationAttributes, NotificationCreationAttributes> implements NotificationAttributes {
     declare id: string;
     declare userId: string;
+    declare organizationId?: string | null;
     declare message: string;
     declare read: boolean;
     declare ticketId?: string;
@@ -36,6 +38,15 @@ Notification.init(
       field: 'user_id',
       references: {
         model: 'users',
+        key: 'id',
+      },
+    },
+    organizationId: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      field: 'organization_id',
+      references: {
+        model: 'organizations',
         key: 'id',
       },
     },

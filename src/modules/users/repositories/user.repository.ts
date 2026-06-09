@@ -4,17 +4,26 @@ import { Role } from '../models/role.model';
 import { Ticket } from '../../tickets/models/ticket.model';
 import { Notification } from '../../notifications/models/notification.model';
 
+const BASIC_ATTRS = ['id', 'name', 'email', 'roleId', 'organizationId'];
+
 export const create = async (userData: any) => {
     return await User.create(userData);
 };
 
 export const findBasicById = async (id: string) => {
-    return await User.findByPk(id, { attributes: ['id', 'name', 'email', 'roleId'] });
+    return await User.findByPk(id, { attributes: BASIC_ATTRS });
+};
+
+export const findByIdWithContext = async (id: string) => {
+    return await User.findByPk(id, {
+        attributes: BASIC_ATTRS,
+        include: [{ model: Role, as: 'role', attributes: ['id', 'name'] }],
+    });
 };
 
 export const findAll = async (options: any = {}) => {
     const optimizedOptions = {
-        attributes: ['id', 'name', 'email', 'roleId'],
+        attributes: BASIC_ATTRS,
         ...options
     };
     return await User.findAll(optimizedOptions);
@@ -22,7 +31,7 @@ export const findAll = async (options: any = {}) => {
 
 export const findById = async (id: string) => {
     return await User.findByPk(id, {
-        attributes: ['id', 'name', 'email', 'roleId'],
+        attributes: BASIC_ATTRS,
         include: [
             {
                 model: Role,
@@ -57,7 +66,7 @@ export const findByEmail = async (email: string) => {
     });
   };
 
-export const update = async (id: string, updates: UpdateUserDto) => {
+export const update = async (id: string, updates: UpdateUserDto | Record<string, any>) => {
     const user = await User.findByPk(id);
     if (!user) return null;
     return await user.update(updates);

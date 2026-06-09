@@ -8,7 +8,7 @@ export const isAdmin = (req: AuthRequest, res: Response, next: NextFunction) => 
     try {
         if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
 
-        const userRole = req.user.roleId;
+        const userRole = req.user.roleId || '';
 
         if (!isAdminRole(userRole)) {
             return res.status(403).json({ message: 'Require Admin or SuperAdmin Role' });
@@ -24,7 +24,7 @@ export const isOwnerOrAdmin = async (req: AuthRequest, res: Response, next: Next
         if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
 
         const userIdToCheck = req.params.id;
-        const actorRoleId = req.user.roleId;
+        const actorRoleId = req.user.roleId || '';
         const actorId = String(req.user.id || '');
 
         if (actorId == userIdToCheck) {
@@ -37,7 +37,13 @@ export const isOwnerOrAdmin = async (req: AuthRequest, res: Response, next: Next
 
         const targetUser = await userRepository.findBasicById(userIdToCheck);
         if (!targetUser) return res.status(404).json({ message: 'User not found' });
-        const targetRoleId = targetUser.roleId;
+
+        // Tenant isolation: cannot act on a user from another organization.
+        if (String((targetUser as any).organizationId) !== String(req.user.organizationId)) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const targetRoleId = targetUser.roleId || '';
 
         if ((actorRoleId || '').toLowerCase() === (ROLES.ADMIN || '').toLowerCase() && isStaffRole(targetRoleId)) {
             return next();
@@ -82,7 +88,7 @@ export const checkUserHierarchy = async (req: AuthRequest, res: Response, next: 
 
         const targetUserId = req.params.id;
         const actorId = req.user.id;
-        const actorRoleId = req.user.roleId;
+        const actorRoleId = req.user.roleId || '';
 
         if (targetUserId == actorId) {
             return next();
@@ -94,7 +100,13 @@ export const checkUserHierarchy = async (req: AuthRequest, res: Response, next: 
 
         const targetUser = await userRepository.findBasicById(targetUserId);
         if (!targetUser) return res.status(404).json({ message: 'User not found' });
-        const targetRoleId = targetUser.roleId;
+
+        // Tenant isolation: cannot act on a user from another organization.
+        if (String((targetUser as any).organizationId) !== String(req.user.organizationId)) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const targetRoleId = targetUser.roleId || '';
 
         if (actorRoleId.toLowerCase() === ROLES.ADMIN.toLowerCase()) {
             if (isAdminRole(targetRoleId)) {

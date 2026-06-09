@@ -3,8 +3,9 @@ import { createTicket } from '../controllers/create-ticket.controller';
 import { listTickets } from '../controllers/list-tickets.controller';
 import { getTicket } from '../controllers/get-ticket.controller';
 import { updateTicket } from '../controllers/update-ticket.controller';
+import { deleteTicket } from '../controllers/delete-ticket.controller';
 import { addApproval } from '../controllers/approval.controller';
-import { authenticateToken } from '../../../middlewares/auth.middleware';
+import { authenticateToken, requireOrganization } from '../../../middlewares/auth.middleware';
 import { authorizeRoles } from '../../../middlewares/permissions.middleware';
 import { ROLES } from '../../../config/roles';
 import { validate } from '../../../middlewares/validator.middleware';
@@ -13,10 +14,15 @@ import { getStatuses } from '../controllers/fetch-status.controller';
 
 export const ticketRouter = Router();
 
+// Reference data — no auth, not tenant-scoped.
 ticketRouter.get('/statuses', getStatuses);
 
-ticketRouter.post('/', authenticateToken, authorizeRoles([ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.TESTER]), validate(createTicketSchema), createTicket);
-ticketRouter.get('/', authenticateToken, listTickets);
-ticketRouter.get('/:id', authenticateToken, validate(ticketIdParamsSchema), getTicket);
-ticketRouter.patch('/:id', authenticateToken, validate(updateTicketSchema), updateTicket);
-ticketRouter.post('/:id/approval', authenticateToken, authorizeRoles([ROLES.SUPER_ADMIN, ROLES.ADMIN]), validate(createApprovalSchema), addApproval);
+// All ticket operations are tenant-scoped.
+ticketRouter.use(authenticateToken, requireOrganization);
+
+ticketRouter.post('/', authorizeRoles([ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.TESTER]), validate(createTicketSchema), createTicket);
+ticketRouter.get('/', listTickets);
+ticketRouter.get('/:id', validate(ticketIdParamsSchema), getTicket);
+ticketRouter.patch('/:id', validate(updateTicketSchema), updateTicket);
+ticketRouter.delete('/:id', validate(ticketIdParamsSchema), deleteTicket);
+ticketRouter.post('/:id/approval', authorizeRoles([ROLES.SUPER_ADMIN, ROLES.ADMIN]), validate(createApprovalSchema), addApproval);

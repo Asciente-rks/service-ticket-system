@@ -1,10 +1,12 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import * as userService from '../services/user.service';
 import { UpdateUserDto } from '../dtos/update-user.dto';
+import { AuthRequest } from '../../../middlewares/auth.middleware';
 
-export const updateUser = async (req: Request, res: Response) => {
+export const updateUser = async (req: AuthRequest, res: Response) => {
     try {
-        const updatedUser = await userService.updateUser(req.params.id, req.body as UpdateUserDto);
+        if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+        const updatedUser = await userService.updateUser(req.params.id, req.body as UpdateUserDto, req.user.organizationId as string);
         if (!updatedUser) {
             return res.status(404).json({ message: 'User not found' });
         }

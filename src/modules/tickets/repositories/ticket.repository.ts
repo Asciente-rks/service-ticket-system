@@ -4,6 +4,7 @@ import { TicketStatus } from '../models/ticket-status.model';
 import { Approval } from '../models/approval.model';
 
 interface CreateTicketParams {
+    organizationId: string;
     title: string;
     description: string;
     priority: string;

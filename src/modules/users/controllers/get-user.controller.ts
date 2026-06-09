@@ -9,7 +9,7 @@ export const getUser = async (req: AuthRequest, res: Response) => {
             return res.status(401).json({ message: 'Unauthorized' });
         }
 
-        const user = await userService.getUserById(id, req.user.roleId, req.user.id);
+        const user = await userService.getUserById(id, req.user.roleId, req.user.id, req.user.organizationId as string);
 
         if (!user) {
             return res.status(404).json({ message: 'User not found' });

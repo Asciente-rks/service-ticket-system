@@ -8,7 +8,7 @@ import { AuthRequest } from '../../../middlewares/auth.middleware';
 export const createUser = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-    const user = await userService.createUser(req.body as CreateUserDto, req.user.roleId);
+    const user = await userService.createUser(req.body as CreateUserDto, req.user.roleId, req.user.organizationId as string);
     res.status(201).json(user as UserResponseDto);
   } catch (error: any) {
     if (error instanceof UniqueConstraintError) {

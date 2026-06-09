@@ -8,3 +8,15 @@ export const createNotification = async (data: CreateNotificationDto) => {
 export const getUserNotifications = async (userId: string) => {
     return await notificationRepository.findAllByUserId(userId);
 };
+
+export const getUnreadCount = async (userId: string) => {
+    return await notificationRepository.countUnreadByUserId(userId);
+};
+
+export const markAsRead = async (notificationId: string, userId: string) => {
+    return await notificationRepository.markRead(notificationId, userId);
+};
+
+export const markAllAsRead = async (userId: string) => {
+    return await notificationRepository.markAllRead(userId);
+};

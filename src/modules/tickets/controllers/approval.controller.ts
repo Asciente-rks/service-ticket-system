@@ -7,7 +7,7 @@ export const addApproval = async (req: AuthRequest, res: Response) => {
     try {
         if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
         
-        const approval = await approvalService.approveTicket(req.params.id, req.user.id, req.body as CreateApprovalDto);
+        const approval = await approvalService.approveTicket(req.params.id, req.user.id, req.body as CreateApprovalDto, req.user.organizationId as string);
         res.status(201).json(approval);
     } catch (error: any) {
         if (error.message.includes('Only Admins and SuperAdmins')) {

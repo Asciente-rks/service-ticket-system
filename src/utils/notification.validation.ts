@@ -24,3 +24,9 @@ export const listNotificationsSchema = yup.object({
         read: yup.boolean().optional()
     })
 });
+
+export const notificationIdParamsSchema = yup.object({
+    params: yup.object({
+        id: yup.string().uuid('Invalid notification ID format').required('Notification ID is required'),
+    }),
+});

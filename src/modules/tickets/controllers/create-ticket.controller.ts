@@ -8,7 +8,7 @@ export const createTicket = async (req: AuthRequest, res: Response) => {
         if (!req.user) {
             return res.status(401).json({ message: 'Unauthorized' });
         }
-        const ticket = await ticketService.createTicket(req.body as CreateTicketDto, req.user.id, req.user.roleId);
+        const ticket = await ticketService.createTicket(req.body as CreateTicketDto, req.user.id, req.user.roleId ?? '', req.user.organizationId as string);
         res.status(201).json(ticket);
     } catch (error: any) {
         if (

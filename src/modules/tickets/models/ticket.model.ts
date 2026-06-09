@@ -3,6 +3,7 @@ import { sequelize } from '../../../config/db';
 
 export interface TicketsAttributes {
     id: string;
+    organizationId: string;
     title: string;
     description: string;
     reportedBy: string;
@@ -17,6 +18,7 @@ export interface TicketsCreationAttributes extends Optional<TicketsAttributes, '
 
 export class Ticket extends Model<TicketsAttributes, TicketsCreationAttributes> implements TicketsAttributes {
     declare id: string;
+    declare organizationId: string;
     declare title: string;
     declare description: string;
     declare reportedBy: string;
@@ -34,6 +36,15 @@ Ticket.init(
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true,
         allowNull: false
+      },
+      organizationId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        field: 'organization_id',
+        references: {
+          model: 'organizations',
+          key: 'id',
+        },
       },
       title: {
         type: DataTypes.STRING,

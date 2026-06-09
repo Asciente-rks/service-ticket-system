@@ -6,7 +6,7 @@ import { AuthRequest } from '../../../middlewares/auth.middleware';
 export const updateTicket = async (req: AuthRequest, res: Response) => {
     try {
         if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-        const updatedTicket = await ticketService.updateTicket(req.params.id, req.body as UpdateTicketDto, req.user.id, req.user.roleId);
+        const updatedTicket = await ticketService.updateTicket(req.params.id, req.body as UpdateTicketDto, req.user.id, req.user.roleId ?? '', req.user.organizationId as string);
         if (!updatedTicket) {
             return res.status(404).json({ message: 'Ticket not found' });
         }

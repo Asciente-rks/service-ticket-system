@@ -3,7 +3,8 @@ import { Notification } from "../../notifications/models/notification.model";
 
 export interface UserResponseDto {
     id: string;
-    roleId: string;
+    roleId: string | null;
+    organizationId?: string | null;
     name: string;
     email: string;
     role?: { id: string; name: string };

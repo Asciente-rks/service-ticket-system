@@ -7,7 +7,7 @@ export const listUsers = async(req: AuthRequest, res: Response) => {
         if (!req.user) {
             return res.status(401).json({ message: 'Unauthorized' });
         }
-        const users = await userService.getAllUsers(req.user.roleId);
+        const users = await userService.getAllUsers(req.user.roleId, req.user.organizationId as string);
         res.status(200).json(users);
     } catch (error) {
         res.status(500).json({ message: 'Error listing users', error});

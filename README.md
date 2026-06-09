@@ -2,17 +2,26 @@
 
 > Internal IT/QA ticketing platform with a built-in approval workflow — testers report defects, developers fix them, admins triage, and approvers sign off before tickets close.
 
-Service Ticket System is a four-role full-stack ticketing application with a real workflow shape: tester-reported defects flow through six lifecycle statuses with per-ticket approve/reject decisions, granular per-user notification preferences, and a node-cron SLA housekeeping job running in the same process as the API. Frontend is a React 19 SPA on Vercel; backend is a single Express 4 process on Render backed by a free-tier MySQL database.
+Service Ticket System is a **multi-tenant SaaS** ticketing platform: every organization gets its own isolated workspace of users, tickets, and notifications. Sign-up is a self-service **email-OTP** flow (register → verify code → set password), after which a user either **creates** a new organization (becoming its SuperAdmin) or **joins** an existing one via invite code. Inside each org, tester-reported defects flow through six lifecycle statuses with per-ticket approve/reject decisions and granular per-user notification preferences. The frontend is a React 19 SPA on Vercel; the backend is an **Express 4 app running on AWS Lambda** (exposed via a Lambda Function URL, no API Gateway), deployed by **GitHub Actions**, backed by **TiDB Cloud Serverless** (MySQL-compatible). The SLA housekeeping job runs on an **EventBridge** schedule that invokes the same Lambda.
 
 ---
 
 ## Live Demo
 
 - **Live app:** https://service-ticket-system-frontend.vercel.app/login
-- **Backend:** Render Web Service (`REST API` on port 3000)
-- **Try it:** Log in with the seeded demo credentials (SUPER_ADMIN, ADMIN, TESTER, or DEVELOPER) — four roles, live approval workflows.
+- **Backend:** AWS Lambda (Function URL) — serverless REST API, deployed via GitHub Actions
+- **Try it:** Log in with the seeded demo credentials (all in the **Demo Organization**, invite code `DEMO-CREW`) or register a brand-new account and create your own organization.
 
-> Render Web Service sleeps after 15 minutes of inactivity. The first request may take 10–20 seconds to wake the dyno.
+> The Lambda may "cold start" after a period of inactivity — the first request can take a couple of seconds while the container and DB connection warm up. Subsequent requests are fast.
+
+### Demo accounts (Demo Organization)
+
+| Role | Email | Password |
+|------|-------|----------|
+| SuperAdmin | `superadmin@test.com` | `Password123!` |
+| Admin | `admin@test.com` | `Password123!` |
+| Developer | `developer@test.com` | `Password123!` |
+| Tester | `tester@test.com` | `Password123!` |
 
 ---
 
@@ -388,13 +397,25 @@ The frontend is a separate repo deployed independently to Vercel. It consumes th
 
 ## API Reference
 
-### Auth
+### Auth & Onboarding
 
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
+| POST | `/auth/register` | none | Start sign-up: `{ email }` → sends a 6-digit OTP |
+| POST | `/auth/verify-otp` | none | `{ email, code }` → returns a short-lived `registrationToken` |
+| POST | `/auth/set-password` | none | `{ registrationToken, name, password }` → creates the account, returns JWT |
 | POST | `/auth/login` | none | Email + password → JWT |
+| GET | `/auth/me` | session | Current user profile (id, name, email, roleId, organizationId) |
 
-> Accounts are created via `POST /users` (admin-gated) or seeded on boot. There is **no** public `/auth/register` endpoint.
+> The JWT encodes `organizationId`. A freshly-registered user has `organizationId: null` and must create or join an org before accessing tenant data.
+
+### Organizations
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| POST | `/organizations` | session | Create an org `{ name }`; caller becomes its SuperAdmin. Returns a re-issued JWT. |
+| POST | `/organizations/join` | session | Join via `{ inviteCode }`; caller joins as Tester. Returns a re-issued JWT. |
+| GET | `/organizations/me` | session + org | Current org (name, slug, memberCount; invite code shown to admins) |
 
 ### Users
 
@@ -416,15 +437,21 @@ The frontend is a separate repo deployed independently to Vercel. It consumes th
 | GET | `/tickets/statuses` | none | List all ticket statuses (no auth — reference data) |
 | GET | `/tickets` | session | List tickets (role-filtered server-side) |
 | GET | `/tickets/:id` | session | Ticket detail |
-| POST | `/tickets` | session + role check (SUPER_ADMIN / ADMIN / TESTER) | Create a ticket |
-| PATCH | `/tickets/:id` | session | Update status, assignee, details (deeper checks live in the service layer) |
-| POST | `/tickets/:id/approval` | session + role check (SUPER_ADMIN / ADMIN) | Approve (→ Resolved) or reject (→ Error Persists) a Ready-for-QA ticket |
+| POST | `/tickets` | session + org + role check (SUPER_ADMIN / ADMIN / TESTER) | Create a ticket |
+| PATCH | `/tickets/:id` | session + org | Update status, assignee, details (deeper checks live in the service layer) |
+| DELETE | `/tickets/:id` | session + org (admin or reporter) | Delete a ticket within the caller's org |
+| POST | `/tickets/:id/approval` | session + org + role check (SUPER_ADMIN / ADMIN) | Approve (→ Resolved) or reject (→ Error Persists) a Ready-for-QA ticket |
+
+> All ticket reads/writes are scoped to the caller's `organizationId` — one org can never see or modify another's tickets.
 
 ### Notifications
 
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
-| GET | `/notifications` | session | List notifications for the current user |
+| GET | `/notifications` | session + org | List notifications for the current user |
+| GET | `/notifications/unread-count` | session + org | `{ count }` of unread notifications (drives the header badge) |
+| PATCH | `/notifications/:id/read` | session + org | Mark a single notification read |
+| PATCH | `/notifications/read-all` | session + org | Mark all of the user's notifications read |
 
 ---
 
@@ -446,46 +473,52 @@ The frontend is a separate repo deployed independently to Vercel. It consumes th
 
 ## Deployment & Environment Variables
 
-The backend is deployed as a **Render Web Service**. On boot, `server.ts` auto-seeds roles + ticket statuses + demo users — no manual migration step required.
+The backend runs on **AWS Lambda** behind a **Lambda Function URL** (no API Gateway, so no per-request gateway cost). CI/CD is **GitHub Actions** (`.github/workflows/deploy-backend.yml`): on every push to `main` it builds the TypeScript, packages a zip (`dist/` + production `node_modules`), and creates/updates the function, its Function URL (with CORS), and a daily EventBridge schedule for the SLA job — all via the AWS CLI.
 
-### Required env vars
+### One-time setup
 
-| Variable | Purpose |
-|----------|---------|
-| `DB_HOST` | MySQL host (e.g., Aiven or FreeSQLDatabase hostname) |
-| `DB_PORT` | MySQL port (default `3306`) |
-| `DB_NAME` | Database name |
-| `DB_USER` | MySQL user |
-| `DB_PASSWORD` | MySQL password |
-| `JWT_SECRET` | Secret for signing JWTs |
+1. **Create an AWS IAM user** for CI with programmatic access and a policy covering `lambda:*`, `iam:CreateRole` / `iam:GetRole` / `iam:AttachRolePolicy` / `iam:PassRole`, `events:*`, and `sts:GetCallerIdentity` (least-privilege policy JSON is in the repo discussion / can be scoped to the specific role + function ARNs). If you'd rather not grant IAM-create, pre-create the execution role and pass its ARN as `LAMBDA_ROLE_ARN`.
+2. **Add GitHub repository secrets** (Settings → Secrets and variables → Actions):
 
-### Optional env vars (defaults shown)
+| Secret | Required | Purpose |
+|--------|----------|---------|
+| `AWS_ACCESS_KEY_ID` | ✅ | CI IAM user access key |
+| `AWS_SECRET_ACCESS_KEY` | ✅ | CI IAM user secret |
+| `AWS_REGION` | ➖ | AWS region (default `us-east-1`) |
+| `DB_HOST` `DB_PORT` `DB_NAME` `DB_USER` `DB_PASSWORD` | ✅ | TiDB Cloud connection |
+| `JWT_SECRET` | ✅ | Long random string for signing JWTs |
+| `CORS_ORIGINS` | ✅ | Comma-separated frontend origins (also used for Function URL CORS) |
+| `SMTP_HOST` `SMTP_PORT` `SMTP_USER` `SMTP_PASS` `SMTP_FROM` `SMTP_SECURE` | ➖ | Email delivery for OTP (omit to use demo OTP mode) |
+| `EXPOSE_OTP` | ➖ | `true` to return the OTP in the API response even with SMTP set (demo) |
+| `JWT_EXPIRES_IN` | ➖ | Session token lifetime (default `8h`) |
+| `LAMBDA_FUNCTION_NAME` | ➖ | Override function name (default `service-ticket-system-api`) |
+| `LAMBDA_ROLE_ARN` | ➖ | Use an existing execution role instead of auto-creating one |
 
-| Variable | Default | Notes |
-|----------|---------|-------|
-| `PORT` | `3000` | HTTP port |
-| `NODE_ENV` | `development` | Set `production` on Render |
-| `CORS_ORIGINS` | (Vercel frontend + localhost) | Comma-separated allow-list override |
-| `SEED_ON_BOOT` | `true` | Set `false` to skip auto-seed |
-| `SERVICE_NAME` | `service-ticket-system` | Appears in `/health` response |
+3. **Push to `main`** (or run the *Deploy Backend to AWS Lambda* workflow). The workflow's summary prints the **Function URL** — use it as the frontend's `VITE_API_URL`.
+4. **Run the *Database (migrate / seed)* workflow** (Actions tab → manual `workflow_dispatch`, `action: both`) once to create the new tables/columns and seed roles, statuses, and the Demo Organization.
 
-### Seed-specific env vars (for demo data)
+### Runtime env vars (set automatically by the deploy workflow on the function)
 
-| Variable | Purpose |
-|----------|---------|
-| `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` | Demo ADMIN account |
-| `SEED_TESTER_EMAIL` / `SEED_TESTER_PASSWORD` | Demo TESTER account |
-| `SEED_DEVELOPER_EMAIL` / `SEED_DEVELOPER_PASSWORD` | Demo DEVELOPER account |
+| Variable | Value | Notes |
+|----------|-------|-------|
+| `NODE_ENV` | `production` | |
+| `SKIP_DB_BOOTSTRAP` | `true` | Skips `CREATE DATABASE` on connect (managed DB) |
+| `DB_SSL` | `true` | TLS to TiDB |
+| `DB_*` / `JWT_SECRET` / `CORS_ORIGINS` / `SMTP_*` | from secrets | |
 
-Seed scripts are also runnable standalone:
+### Local development & DB scripts
 
 ```bash
+npm run dev             # ts-node + nodemon on :3000 (in-process cron + auto-seed)
+npm run build           # tsc -> dist/
+npm run db:migrate      # idempotent additive schema migration (safe on live DB)
 npm run seed:roles      # idempotent role rows
 npm run seed:status     # idempotent ticket status rows
-npm run seed:users      # demo accounts for all four roles
+npm run seed:users      # Demo Organization + 4 demo accounts
 npm run seed:all        # roles + statuses + users in sequence
-npm run db:reset        # sync + seed:all
 ```
+
+> **Cron in Lambda:** `node-cron` cannot run in Lambda's event-driven model. The SLA stale-ticket job is exported as `runStaleTicketCheck()` and invoked by an EventBridge schedule (`cron(0 9 * * ? *)`) that sends the Lambda an event the handler detects (`{ "__cron": true }`). Locally, `initCronJobs()` still runs it in-process.
 
 ---
 
@@ -495,19 +528,20 @@ Designed for **$0/month** — every layer runs on a free tier with no expiry.
 
 | Service | Free tier | We use | Headroom |
 |---------|-----------|--------|----------|
-| Render Web Service | 750 hours/mo, sleeps after 15 min | Single always-on dyno | Within limits |
-| MySQL (Aiven / FreeSQLDatabase) | 5 GB / 1 GB depending on provider | < 50 MB | 95%+ |
+| AWS Lambda + Function URL | 1M requests + 400k GB-s / mo (always-free) | A portfolio app's traffic | 99%+ |
+| AWS EventBridge | 14M scheduled invocations / mo free | 1 invocation/day | ~100% |
+| TiDB Cloud Serverless (MySQL) | 5 GB storage + generous RUs | < 50 MB | 99%+ |
 | Vercel Hobby (frontend) | 100 GB bandwidth, unlimited deploys | < 500 MB/mo | 99.5% |
-| GitHub Actions (public repo) | Unlimited minutes | n/a (Vercel auto-deploys) | Unlimited |
+| GitHub Actions (public repo) | Unlimited minutes | CI/CD deploys | Unlimited |
 
 **Monthly total: $0/month**
 
 **Rationale for notable choices:**
 
-- **MySQL over PostgreSQL** — broader free-tier availability (Aiven, FreeSQLDatabase, Filess.io).
-- **bcryptjs over bcrypt** — pure JS, no native build step; deploys cleanly to Render free tier.
-- **Vercel for the SPA** — global CDN + free SSL + automatic deploys + zero-config Vite detection.
-- **node-cron in-process** — saves an entire worker service; trade-off is horizontal-scaling requires leader election.
+- **Lambda Function URL over API Gateway** — Function URLs add no cost on top of Lambda's always-free tier; API Gateway bills per request after its 12-month free tier expires.
+- **TiDB Cloud Serverless** — MySQL-compatible, generous always-free tier, and HTTPS/TLS access that suits Lambda's connection model (no VPC required).
+- **bcryptjs / mysql2 / serverless-http** — all pure JS, no native build step, so the same zip runs on the Amazon Linux Lambda runtime.
+- **EventBridge schedule over node-cron** — Lambda has no long-lived process; a scheduled event invokes the same function for the daily SLA job.
 
 ---
 

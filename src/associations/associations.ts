@@ -5,10 +5,29 @@ import { TicketStatus } from '../modules/tickets/models/ticket-status.model';
 import { Approval } from '../modules/tickets/models/approval.model';
 import { Notification } from '../modules/notifications/models/notification.model';
 import { NotificationSettings } from '../modules/users/models/notification-settings.model';
+import { Organization } from '../modules/organizations/models/organization.model';
+
+let defined = false;
 
 export const defineAssociations = () => {
+    // Guard against double-definition on warm Lambda containers.
+    if (defined) return;
+    defined = true;
+
     Role.hasMany(User, { foreignKey: 'roleId', as: 'users' });
     User.belongsTo(Role, { foreignKey: 'roleId', as: 'role' });
+
+    // Multi-tenant: organizations own users and tickets.
+    Organization.hasMany(User, { foreignKey: 'organizationId', as: 'members' });
+    User.belongsTo(Organization, { foreignKey: 'organizationId', as: 'organization' });
+
+    Organization.belongsTo(User, { foreignKey: 'ownerId', as: 'owner' });
+
+    Organization.hasMany(Ticket, { foreignKey: 'organizationId', as: 'tickets' });
+    Ticket.belongsTo(Organization, { foreignKey: 'organizationId', as: 'organization' });
+
+    Organization.hasMany(Notification, { foreignKey: 'organizationId', as: 'notifications' });
+    Notification.belongsTo(Organization, { foreignKey: 'organizationId', as: 'organization' });
 
     User.hasMany(Ticket, { foreignKey: 'reportedBy', as: 'reportedTickets' });
     Ticket.belongsTo(User, { foreignKey: 'reportedBy', as: 'reporter' });

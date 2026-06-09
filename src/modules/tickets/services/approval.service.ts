@@ -9,7 +9,7 @@ import * as userRepository from '../../users/repositories/user.repository';
 import { STATUSES } from '../../../config/statuses';
 import { ROLES } from '../../../config/roles';
 
-export const approveTicket = async (ticketId: string, approverId: string, approvalData: CreateApprovalDto): Promise<ApprovalResponseDto> => {
+export const approveTicket = async (ticketId: string, approverId: string, approvalData: CreateApprovalDto, organizationId: string): Promise<ApprovalResponseDto> => {
     if (approvalData.status !== 'Approved' && approvalData.status !== 'Rejected') {
         throw new Error('Invalid status. Allowed values: Approved, Rejected');
     }
@@ -23,6 +23,11 @@ export const approveTicket = async (ticketId: string, approverId: string, approv
 
     const ticket = await ticketRepository.findById(ticketId);
     if (!ticket) {
+        throw new Error('Ticket not found');
+    }
+
+    // Tenant isolation: cannot approve a ticket from another organization.
+    if (String((ticket as any).organizationId) !== String(organizationId)) {
         throw new Error('Ticket not found');
     }
 
@@ -54,6 +59,7 @@ export const approveTicket = async (ticketId: string, approverId: string, approv
         await notificationService.createNotification({
             userId: ticket.reportedBy,
             ticketId: ticket.id,
+            organizationId,
             message: `Your ticket "${ticket.title}" has been ${approvalData.status}.`
         });
     }
@@ -67,6 +73,7 @@ export const approveTicket = async (ticketId: string, approverId: string, approv
             await notificationService.createNotification({
                 userId: ticket.assignedTo,
                 ticketId: ticket.id,
+                organizationId,
                 message: `Ticket "${ticket.title}" assigned to you has been ${approvalData.status}.`
             });
         }

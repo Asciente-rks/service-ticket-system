@@ -54,6 +54,14 @@ export const loginLimiter = rateLimit({
     bucketKey: 'auth-login',
 });
 
+// Slightly looser than login: the OTP flow legitimately makes several calls
+// (register -> verify -> set-password) and users may retry codes.
+export const registerLimiter = rateLimit({
+    limit: 15,
+    windowMs: 60_000,
+    bucketKey: 'auth-register',
+});
+
 export const globalLimiter = rateLimit({
     limit: 120,
     windowMs: 60_000,

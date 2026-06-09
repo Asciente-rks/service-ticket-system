@@ -1,9 +1,11 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import * as userService from '../services/user.service';
+import { AuthRequest } from '../../../middlewares/auth.middleware';
 
-export const deleteUser = async (req: Request, res: Response) => {
+export const deleteUser = async (req: AuthRequest, res: Response) => {
     try {
-        const deleted = await userService.deleteUser(req.params.id);
+        if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+        const deleted = await userService.deleteUser(req.params.id, req.user.organizationId as string);
         if (!deleted) {
             return res.status(404).json({ message: 'User not found' });
         }
