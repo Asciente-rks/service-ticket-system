@@ -14,7 +14,11 @@ const toCommentDto = (c: any) => ({
     : { id: c.authorId, name: 'Unknown', email: '' },
 });
 
-/** Returns top-level comments with their replies nested, oldest first. */
+/**
+ * Returns ALL comments for a ticket as a flat list (oldest first), each with
+ * its parentId. The client assembles the arbitrary-depth reply tree, which lets
+ * users reply to replies indefinitely.
+ */
 export const listComments = async (ticketId: string, organizationId: string) => {
   const ticket = await ticketRepository.findById(ticketId);
   if (!ticket || String((ticket as any).organizationId) !== String(organizationId)) {
@@ -24,17 +28,7 @@ export const listComments = async (ticketId: string, organizationId: string) => 
   }
 
   const rows = await commentRepository.findByTicket(ticketId);
-  const dtos = rows.map(toCommentDto);
-
-  const topLevel = dtos.filter((c) => !c.parentId);
-  const repliesByParent = new Map<string, any[]>();
-  dtos.filter((c) => c.parentId).forEach((r) => {
-    const list = repliesByParent.get(r.parentId) || [];
-    list.push(r);
-    repliesByParent.set(r.parentId, list);
-  });
-
-  return topLevel.map((c) => ({ ...c, replies: repliesByParent.get(c.id) || [] }));
+  return rows.map(toCommentDto);
 };
 
 export const createComment = async (
