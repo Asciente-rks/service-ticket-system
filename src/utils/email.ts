@@ -1,35 +1,34 @@
 import nodemailer, { Transporter } from 'nodemailer';
 
-const smtpConfigured = !!(
-  process.env.SMTP_HOST &&
-  process.env.SMTP_USER &&
-  process.env.SMTP_PASS
-);
+// Simple Gmail setup: just an address + 16-char app password.
+//   EMAIL_USER=you@gmail.com
+//   EMAIL_PASS=xxxxxxxxxxxxxxxx   (Google App Password, no spaces)
+const emailUser = process.env.EMAIL_USER;
+const emailPass = process.env.EMAIL_PASS;
+const emailConfigured = !!(emailUser && emailPass);
 
 let transporter: Transporter | null = null;
 
 const getTransporter = (): Transporter | null => {
-  if (!smtpConfigured) return null;
+  if (!emailConfigured) return null;
   if (!transporter) {
     transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT) || 587,
-      secure: (process.env.SMTP_SECURE || 'false').toLowerCase() === 'true',
+      service: 'gmail',
       auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
+        user: emailUser,
+        pass: emailPass,
       },
     });
   }
   return transporter;
 };
 
-export const isEmailConfigured = (): boolean => smtpConfigured;
+export const isEmailConfigured = (): boolean => emailConfigured;
 
 /**
- * When SMTP is not configured we still return success so the flow stays usable
+ * When email isn't configured we still return success so the flow stays usable
  * for demos/local dev — the OTP is logged and (when allowed) echoed by the
- * controller in the API response. Configure SMTP_* to send real emails.
+ * controller in the API response. Set EMAIL_USER + EMAIL_PASS to send real mail.
  */
 export const sendOtpEmail = async (
   to: string,
@@ -39,7 +38,7 @@ export const sendOtpEmail = async (
   const appName = process.env.SERVICE_NAME || 'Service Ticket System';
 
   if (!t) {
-    console.log(`[email:dev] Verification code for ${to}: ${code} (SMTP not configured)`);
+    console.log(`[email:dev] Verification code for ${to}: ${code} (email not configured)`);
     return { delivered: false };
   }
 
@@ -56,7 +55,7 @@ export const sendOtpEmail = async (
   </div>`;
 
   await t.sendMail({
-    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    from: `${appName} <${emailUser}>`,
     to,
     subject: `${appName} — your verification code`,
     text: `Your ${appName} verification code is ${code}. It expires in 10 minutes.`,

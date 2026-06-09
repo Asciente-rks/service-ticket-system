@@ -487,9 +487,9 @@ The backend runs on **AWS Lambda** behind a **Lambda Function URL** (no API Gate
 | `AWS_REGION` | ➖ | AWS region (default `us-east-1`) |
 | `DB_HOST` `DB_PORT` `DB_NAME` `DB_USER` `DB_PASSWORD` | ✅ | TiDB Cloud connection |
 | `JWT_SECRET` | ✅ | Long random string for signing JWTs |
-| `CORS_ORIGINS` | ✅ | Comma-separated frontend origins (also used for Function URL CORS) |
-| `SMTP_HOST` `SMTP_PORT` `SMTP_USER` `SMTP_PASS` `SMTP_FROM` `SMTP_SECURE` | ➖ | Email delivery for OTP (omit to use demo OTP mode) |
-| `EXPOSE_OTP` | ➖ | `true` to return the OTP in the API response even with SMTP set (demo) |
+| `CORS_ORIGINS` | ✅ | Comma-separated frontend origins (Express allow-list) |
+| `EMAIL_USER` `EMAIL_PASS` | ➖ | Gmail address + 16-char App Password for OTP email (omit to use demo OTP mode) |
+| `EXPOSE_OTP` | ➖ | `true` to return the OTP in the API response even with email set (demo) |
 | `JWT_EXPIRES_IN` | ➖ | Session token lifetime (default `8h`) |
 | `LAMBDA_FUNCTION_NAME` | ➖ | Override function name (default `service-ticket-system-api`) |
 | `LAMBDA_ROLE_ARN` | ➖ | Use an existing execution role instead of auto-creating one |
@@ -504,7 +504,7 @@ The backend runs on **AWS Lambda** behind a **Lambda Function URL** (no API Gate
 | `NODE_ENV` | `production` | |
 | `SKIP_DB_BOOTSTRAP` | `true` | Skips `CREATE DATABASE` on connect (managed DB) |
 | `DB_SSL` | `true` | TLS to TiDB |
-| `DB_*` / `JWT_SECRET` / `CORS_ORIGINS` / `SMTP_*` | from secrets | |
+| `DB_*` / `JWT_SECRET` / `CORS_ORIGINS` / `EMAIL_USER` / `EMAIL_PASS` | from secrets | |
 
 ### Local development & DB scripts
 
