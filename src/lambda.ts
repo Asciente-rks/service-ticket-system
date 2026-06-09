@@ -1,26 +1,17 @@
 import serverlessHttp from "serverless-http";
 import { app } from "./app";
-import { connectDB } from "./config/db";
 import { defineAssociations } from "./associations/associations";
 import { runStaleTicketCheck } from "./modules/tickets/cron/ticket.cron";
 
-// Memoize one-time, per-container initialization. AWS Lambda reuses a warm
-// container across invocations, so associations + the DB connection are only
-// set up on the first (cold) invocation and reused afterwards.
-let readyPromise: Promise<void> | null = null;
-
-const ensureReady = (): Promise<void> => {
-  if (!readyPromise) {
-    readyPromise = (async () => {
-      defineAssociations();
-      await connectDB();
-    })().catch((err) => {
-      // Reset so the next invocation can retry instead of caching a failure.
-      readyPromise = null;
-      throw err;
-    });
+// One-time, per-container init. Only wires up model associations (pure in-memory,
+// no network). Sequelize opens the actual DB connection lazily on the first query
+// and reuses it across warm invocations — so /health never depends on the DB.
+let initialized = false;
+const ensureReady = (): void => {
+  if (!initialized) {
+    defineAssociations();
+    initialized = true;
   }
-  return readyPromise;
 };
 
 const serverlessHandler = serverlessHttp(app);
@@ -36,14 +27,15 @@ export const handler = async (event: any, context: any) => {
   // Don't wait for the Sequelize pool to drain before returning the response.
   if (context) context.callbackWaitsForEmptyEventLoop = false;
 
-  await ensureReady();
+  ensureReady();
 
-  // EventBridge / EventBridge Scheduler trigger -> run the SLA stale-ticket job.
+  // Optional: only fires if something invokes the function with { "__cron": true }.
+  // (No EventBridge is provisioned by default — kept here so the SLA job can be
+  // triggered manually or by any free scheduler you choose to add later.)
   if (isScheduledEvent(event)) {
     await runStaleTicketCheck();
     return { statusCode: 200, body: JSON.stringify({ ok: true, job: "stale-ticket-check" }) };
   }
 
-  // Otherwise treat it as an HTTP event from the Lambda Function URL.
   return serverlessHandler(event, context);
 };
