@@ -11,6 +11,7 @@ interface CreateTicketParams {
     reportedBy: string;
     assignedTo: string | null;
     statusId: string;
+    jamUrl?: string | null;
 }
 
 export const create = async (ticketData: CreateTicketParams) => {

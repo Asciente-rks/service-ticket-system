@@ -81,3 +81,59 @@ export const me = async (req: AuthRequest, res: Response) => {
     res.status(500).json({ message: "Could not load profile." });
   }
 };
+
+export const forgotPassword = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body as { email: string };
+    const { code, delivered, userExists } = await authService.startPasswordReset(email);
+
+    // Demo convenience: expose the code only when the account exists AND email
+    // delivery isn't configured (or EXPOSE_OTP is on).
+    const exposeCode = userExists && (EXPOSE_OTP || !authService.emailDeliveryEnabled());
+
+    // Generic response regardless of whether the account exists (no enumeration).
+    res.status(200).json({
+      message: "If an account exists for that email, a reset code has been sent.",
+      emailDelivered: delivered,
+      ...(exposeCode && code ? { devOtp: code } : {}),
+    });
+  } catch (error: any) {
+    res.status(400).json({ message: error.message || "Could not start password reset." });
+  }
+};
+
+export const verifyResetOtp = async (req: Request, res: Response) => {
+  try {
+    const { email, code } = req.body as { email: string; code: string };
+    const { resetToken } = await authService.verifyResetOtp(email, code);
+    res.status(200).json({ verified: true, resetToken });
+  } catch (error: any) {
+    res.status(400).json({ message: error.message || "Verification failed." });
+  }
+};
+
+export const resetPassword = async (req: Request, res: Response) => {
+  try {
+    const { resetToken, password } = req.body as { resetToken: string; password: string };
+    await authService.completePasswordReset(resetToken, password);
+    res.status(200).json({ success: true, message: "Your password has been reset. You can now sign in." });
+  } catch (error: any) {
+    const status = error.statusCode || 400;
+    res.status(status).json({ message: error.message || "Could not reset password." });
+  }
+};
+
+export const changePassword = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const { currentPassword, newPassword } = req.body as {
+      currentPassword: string;
+      newPassword: string;
+    };
+    await authService.changePassword(req.user.id, currentPassword, newPassword);
+    res.status(200).json({ success: true, message: "Your password has been updated." });
+  } catch (error: any) {
+    const status = error.statusCode || 400;
+    res.status(status).json({ message: error.message || "Could not change password." });
+  }
+};

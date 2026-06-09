@@ -26,7 +26,10 @@ export const countMembers = async (organizationId: string) => {
     return await User.count({ where: { organizationId } });
 };
 
-export const update = async (id: string, updates: Partial<{ name: string; ownerId: string }>) => {
+export const update = async (
+    id: string,
+    updates: Partial<{ name: string; ownerId: string; inviteCode: string }>,
+) => {
     const org = await Organization.findByPk(id);
     if (!org) return null;
     return await org.update(updates);

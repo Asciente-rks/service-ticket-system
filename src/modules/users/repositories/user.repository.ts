@@ -14,6 +14,12 @@ export const findBasicById = async (id: string) => {
     return await User.findByPk(id, { attributes: BASIC_ATTRS });
 };
 
+// Includes the password hash + organizationId — used for self-service flows
+// (change password / update profile) that must verify the current password.
+export const findByIdWithSecret = async (id: string) => {
+    return await User.findByPk(id);
+};
+
 export const findByIdWithContext = async (id: string) => {
     return await User.findByPk(id, {
         attributes: BASIC_ATTRS,

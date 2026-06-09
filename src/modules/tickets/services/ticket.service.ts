@@ -65,6 +65,7 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
         organizationId,
         title: ticketData.title,
         description: ticketData.description,
+        jamUrl: ticketData.jamUrl ?? null,
         priority: ticketData.priority,
         reportedBy: reporterId,
         assignedTo: ticketData.assigneeId || null,
@@ -264,6 +265,7 @@ const toTicketResponseDto = (ticket: any): TicketResponseDto => {
         id: ticket.id,
         title: ticket.title,
         description: ticket.description,
+        jamUrl: ticket.jamUrl ?? null,
         status: ticket.status.name,
         priority: ticket.priority,
         reporter: {

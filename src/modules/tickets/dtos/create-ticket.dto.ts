@@ -3,4 +3,5 @@ export interface CreateTicketDto {
   description: string;
   priority: 'Low' | 'Medium' | 'High';
   assigneeId?: string;
+  jamUrl?: string | null;
 }

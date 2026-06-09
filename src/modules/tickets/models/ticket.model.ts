@@ -6,6 +6,7 @@ export interface TicketsAttributes {
     organizationId: string;
     title: string;
     description: string;
+    jamUrl: string | null;
     reportedBy: string;
     assignedTo: string | null;
     statusId: string;
@@ -21,6 +22,7 @@ export class Ticket extends Model<TicketsAttributes, TicketsCreationAttributes> 
     declare organizationId: string;
     declare title: string;
     declare description: string;
+    declare jamUrl: string | null;
     declare reportedBy: string;
     declare assignedTo: string | null;
     declare statusId: string;
@@ -47,12 +49,19 @@ Ticket.init(
         },
       },
       title: {
-        type: DataTypes.STRING,
+        // TEXT (not STRING) so titles have no practical length cap.
+        type: DataTypes.TEXT,
         allowNull: false,
       },
       description: {
         type: DataTypes.TEXT,
         allowNull: true,
+      },
+      jamUrl: {
+        // Optional Jam (jam.dev) recording link attached to a bug report.
+        type: DataTypes.TEXT,
+        allowNull: true,
+        field: 'jam_url',
       },
       reportedBy: {
         type: DataTypes.UUID,

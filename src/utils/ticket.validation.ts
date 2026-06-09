@@ -1,25 +1,38 @@
 import * as yup from 'yup';
 
+// Optional Jam (jam.dev) recording link. Empty string is treated as "not set".
+const jamUrlSchema = yup
+    .string()
+    .trim()
+    .transform((value) => (value === '' ? null : value))
+    .url('Jam recording must be a valid URL (e.g. https://jam.dev/c/...)')
+    .nullable()
+    .notRequired();
+
+// Title/description have no minimum or maximum length — users decide how much or
+// how little to write. Title is still required to be present (non-empty).
 export const createTicketSchema = yup.object({
     body: yup.object({
-        title: yup.string().required('Title is required').min(5, 'Title must be at least 5 characters long'),
-        description: yup.string().required('Description is required').min(10, 'Description must be at least 10 characters long'),
+        title: yup.string().trim().required('Title is required'),
+        description: yup.string().trim().required('Description is required'),
         priority: yup.string().oneOf(['Low', 'Medium', 'High'], 'Priority must be one of: Low, Medium, or High').optional(),
         assigneeId: yup.string().uuid('Assignee ID must be a valid UUID').optional(),
+        jamUrl: jamUrlSchema,
     }),
 });
 
 export const updateTicketSchema = yup.object({
     body: yup.object({
-        title: yup.string().min(5, 'Title must be at least 5 characters long'),
-        description: yup.string().min(10, 'Description must be at least 10 characters long'),
+        title: yup.string().trim(),
+        description: yup.string().trim(),
         statusId: yup.string(),
         priority: yup.string().oneOf(['Low', 'Medium', 'High'], 'Priority must be one of: Low, Medium, or High'),
         assigneeId: yup.string().uuid('Assignee ID must be a valid UUID').nullable(),
+        jamUrl: jamUrlSchema,
     }).test(
         'at-least-one-field',
-        'At least one field (title, description, statusId, priority, assigneeId) must be provided for an update.',
-        (value) => value.title !== undefined || value.description !== undefined || value.statusId !== undefined || value.priority !== undefined || value.assigneeId !== undefined
+        'At least one field (title, description, statusId, priority, assigneeId, jamUrl) must be provided for an update.',
+        (value) => value.title !== undefined || value.description !== undefined || value.statusId !== undefined || value.priority !== undefined || value.assigneeId !== undefined || value.jamUrl !== undefined
     ),
     params: yup.object({
         id: yup.string().uuid('Invalid ticket ID format.').required('Ticket ID is required'),

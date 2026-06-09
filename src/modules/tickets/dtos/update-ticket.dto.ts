@@ -4,4 +4,5 @@ export interface UpdateTicketDto {
   priority?: 'Low' | 'Medium' | 'High';
   statusId?: string;
   assigneeId?: string;
+  jamUrl?: string | null;
 }

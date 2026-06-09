@@ -104,6 +104,23 @@ const run = async () => {
     console.log('Column notifications.organization_id already exists — skipping.');
   }
 
+  // 7) tickets.jam_url — optional Jam (jam.dev) recording link on a ticket
+  if (!(await columnExists('tickets', 'jam_url'))) {
+    console.log('Adding column: tickets.jam_url');
+    await sequelize.query(`ALTER TABLE tickets ADD COLUMN jam_url TEXT NULL;`);
+  } else {
+    console.log('Column tickets.jam_url already exists — skipping.');
+  }
+
+  // 8) tickets.title -> TEXT (remove the legacy 255-char cap so titles can be
+  //    any length). Safe/idempotent: widening VARCHAR to TEXT never truncates.
+  console.log('Widening tickets.title to TEXT');
+  try {
+    await sequelize.query(`ALTER TABLE tickets MODIFY title TEXT NOT NULL;`);
+  } catch (err: any) {
+    console.warn('Could not modify tickets.title (may already be TEXT):', err.message);
+  }
+
   console.log('--- Migration complete ---');
   await sequelize.close();
 };
