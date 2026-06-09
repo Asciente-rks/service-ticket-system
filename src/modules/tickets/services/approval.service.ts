@@ -6,6 +6,7 @@ import { ApprovalResponseDto } from '../dtos/approval-response.dto';
 import * as notificationService from '../../notifications/services/notification.service';
 import * as notificationSettingService from '../../users/services/notification-setting.service';
 import * as userRepository from '../../users/repositories/user.repository';
+import * as ticketEventService from './ticket-event.service';
 import { STATUSES } from '../../../config/statuses';
 import { ROLES } from '../../../config/roles';
 
@@ -44,12 +45,20 @@ export const approveTicket = async (ticketId: string, approverId: string, approv
         if (resolvedStatus) {
             await ticketRepository.update(ticketId, { statusId: resolvedStatus.id });
         }
-    } else if (approvalData.status === 'Rejected') {        
+    } else if (approvalData.status === 'Rejected') {
         const errorPersistsStatus = await ticketStatusRepository.findByName('Error Persists');
         if (errorPersistsStatus) {
              await ticketRepository.update(ticketId, { statusId: errorPersistsStatus.id });
         }
     }
+
+    // Timeline: record the review decision.
+    await ticketEventService.logEvent({
+        ticketId,
+        organizationId,
+        actorId: approverId,
+        type: approvalData.status === 'Approved' ? 'approved' : 'rejected',
+    });
 
     const reporterSettings = await notificationSettingService.getNotificationSettings(ticket.reportedBy);
     const shouldNotifyReporter = (approvalData.status === 'Approved' && reporterSettings.notifyTicketApproved) ||

@@ -3,6 +3,8 @@ import { Role } from '../modules/users/models/role.model';
 import { Ticket } from '../modules/tickets/models/ticket.model';
 import { TicketStatus } from '../modules/tickets/models/ticket-status.model';
 import { Approval } from '../modules/tickets/models/approval.model';
+import { Comment } from '../modules/tickets/models/comment.model';
+import { TicketEvent } from '../modules/tickets/models/ticket-event.model';
 import { Notification } from '../modules/notifications/models/notification.model';
 import { NotificationSettings } from '../modules/users/models/notification-settings.model';
 import { Organization } from '../modules/organizations/models/organization.model';
@@ -52,6 +54,19 @@ export const defineAssociations = () => {
 
     User.hasOne(NotificationSettings, { foreignKey: 'userId', as: 'notificationSettings' });
     NotificationSettings.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+
+    // Ticket comments (threaded) and timeline events.
+    Ticket.hasMany(Comment, { foreignKey: 'ticketId', as: 'comments' });
+    Comment.belongsTo(Ticket, { foreignKey: 'ticketId', as: 'ticket' });
+    User.hasMany(Comment, { foreignKey: 'authorId', as: 'comments' });
+    Comment.belongsTo(User, { foreignKey: 'authorId', as: 'author' });
+    Comment.hasMany(Comment, { foreignKey: 'parentId', as: 'replies' });
+    Comment.belongsTo(Comment, { foreignKey: 'parentId', as: 'parent' });
+
+    Ticket.hasMany(TicketEvent, { foreignKey: 'ticketId', as: 'events' });
+    TicketEvent.belongsTo(Ticket, { foreignKey: 'ticketId', as: 'ticket' });
+    User.hasMany(TicketEvent, { foreignKey: 'actorId', as: 'ticketEvents' });
+    TicketEvent.belongsTo(User, { foreignKey: 'actorId', as: 'actor' });
 
     console.log('Model associations defined.');
 };

@@ -54,3 +54,13 @@ export const createApprovalSchema = yup.object({
         id: yup.string().uuid('Invalid ticket ID format.').required('Ticket ID is required'),
     }),
 });
+
+export const createCommentSchema = yup.object({
+    body: yup.object({
+        body: yup.string().trim().required('Comment cannot be empty').max(5000, 'Comment is too long (max 5000 characters)'),
+        parentId: yup.string().uuid('Invalid parent comment id').nullable().notRequired(),
+    }),
+    params: yup.object({
+        id: yup.string().uuid('Invalid ticket ID format.').required('Ticket ID is required'),
+    }),
+});

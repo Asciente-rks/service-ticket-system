@@ -119,10 +119,12 @@ export const deleteUser = async (id: string, organizationId: string) => {
     return await userRepository.remove(id);
 }
 
-export const getOwnProfile = async (userId: string): Promise<UserResponseDto | null> => {
-    const user = await userRepository.findBasicById(userId);
+export const getOwnProfile = async (
+    userId: string,
+): Promise<(UserResponseDto & { createdAt: Date | null }) | null> => {
+    const user = await userRepository.findProfileById(userId);
     if (!user) return null;
-    return toUserResponseDto(user);
+    return { ...toUserResponseDto(user), createdAt: (user as any).createdAt ?? null };
 };
 
 export type ProfileUpdateResult =

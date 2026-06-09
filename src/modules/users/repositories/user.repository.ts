@@ -14,6 +14,11 @@ export const findBasicById = async (id: string) => {
     return await User.findByPk(id, { attributes: BASIC_ATTRS });
 };
 
+// Basic fields + createdAt, for the read-only profile view.
+export const findProfileById = async (id: string) => {
+    return await User.findByPk(id, { attributes: [...BASIC_ATTRS, 'createdAt'] });
+};
+
 // Includes the password hash + organizationId — used for self-service flows
 // (change password / update profile) that must verify the current password.
 export const findByIdWithSecret = async (id: string) => {

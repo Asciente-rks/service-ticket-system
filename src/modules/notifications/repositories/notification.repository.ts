@@ -1,4 +1,5 @@
 import { Notification } from '../models/notification.model';
+import { Ticket } from '../../tickets/models/ticket.model';
 import { CreateNotificationDto } from '../dtos/create-notification.dto';
 
 export const create = async (data: CreateNotificationDto) => {
@@ -10,6 +11,25 @@ export const findAllByUserId = async (userId: string) => {
         where: { userId },
         order: [['createdAt', 'DESC']]
     });
+};
+
+// Includes the linked ticket (if any) so the service can drop orphaned
+// notifications whose ticket has been deleted.
+export const findAllByUserIdWithTicket = async (userId: string) => {
+    return await Notification.findAll({
+        where: { userId },
+        order: [['createdAt', 'DESC']],
+        include: [{ model: Ticket, as: 'ticket', attributes: ['id'], required: false }],
+    });
+};
+
+export const deleteByIds = async (ids: string[]) => {
+    if (!ids.length) return 0;
+    return await Notification.destroy({ where: { id: ids } });
+};
+
+export const deleteByTicketId = async (ticketId: string) => {
+    return await Notification.destroy({ where: { ticketId } });
 };
 
 export const countUnreadByUserId = async (userId: string) => {

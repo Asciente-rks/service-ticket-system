@@ -5,7 +5,11 @@ import * as ticketRepository from '../repositories/ticket.repository';
 import * as ticketStatusRepository from '../repositories/ticket-status.repository';
 import * as userRepository from '../../users/repositories/user.repository';
 import * as notificationService from '../../notifications/services/notification.service';
+import * as notificationRepository from '../../notifications/repositories/notification.repository';
 import * as notificationSettingService from '../../users/services/notification-setting.service';
+import * as ticketEventService from './ticket-event.service';
+import * as commentRepository from '../repositories/comment.repository';
+import * as ticketEventRepository from '../repositories/ticket-event.repository';
 import { ROLES } from '../../../config/roles';
 import { STATUSES } from '../../../config/statuses';
 
@@ -77,6 +81,18 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
 
     const createdTicket = toTicketResponseDto(ticketWithAssociations);
 
+    // Timeline: ticket reported (+ initial assignment if any).
+    await ticketEventService.logEvent({ ticketId: ticket.id, organizationId, actorId: reporterId, type: 'reported' });
+    if (ticket.assignedTo) {
+        await ticketEventService.logEvent({
+            ticketId: ticket.id,
+            organizationId,
+            actorId: reporterId,
+            type: 'assigned',
+            toValue: (ticketWithAssociations as any).assignee?.name ?? null,
+        });
+    }
+
     if (ticket.assignedTo) {
         const settings = await notificationSettingService.getNotificationSettings(ticket.assignedTo);
         if (settings.notifyAssignedTicket) {
@@ -127,6 +143,12 @@ export const deleteTicket = async (id: string, organizationId: string, userId: s
         err.statusCode = 403;
         throw err;
     }
+
+    // Remove dependent rows first so nothing is orphaned (notifications, comments,
+    // timeline events). Notifications have no DB cascade, so always clean explicitly.
+    await notificationRepository.deleteByTicketId(id);
+    await commentRepository.deleteByTicket(id);
+    await ticketEventRepository.deleteByTicket(id);
 
     await ticketRepository.remove(id);
     return true;
@@ -215,7 +237,35 @@ export const updateTicket = async (id: string, updates: UpdateTicketDto, userId:
     }
 
     await ticketRepository.update(id, updateData);
-    const updatedTicket = await ticketRepository.findById(id); 
+    const updatedTicket = await ticketRepository.findById(id);
+
+    // Timeline: log assignment/reassignment and status transitions based on the
+    // actual before/after saved values (catches status-driven auto-reassignments).
+    const beforeAssignee = (ticket as any).assignedTo ? String((ticket as any).assignedTo) : null;
+    const afterAssignee = (updatedTicket as any).assignedTo ? String((updatedTicket as any).assignedTo) : null;
+    if (beforeAssignee !== afterAssignee) {
+        await ticketEventService.logEvent({
+            ticketId: id,
+            organizationId,
+            actorId: userId,
+            type: beforeAssignee ? 'reassigned' : 'assigned',
+            fromValue: (ticket as any).assignee?.name ?? null,
+            toValue: (updatedTicket as any).assignee?.name ?? null,
+        });
+    }
+    const beforeStatus = (ticket as any).status?.name ?? null;
+    const afterStatus = (updatedTicket as any).status?.name ?? null;
+    if (beforeStatus !== afterStatus) {
+        await ticketEventService.logEvent({
+            ticketId: id,
+            organizationId,
+            actorId: userId,
+            type: 'status_changed',
+            fromValue: beforeStatus,
+            toValue: afterStatus,
+        });
+    }
+
     if (updates.statusId && ticket.statusId !== updates.statusId) {
         const statusName = (updatedTicket as any).status.name;
 

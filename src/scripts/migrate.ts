@@ -121,6 +121,50 @@ const run = async () => {
     console.warn('Could not modify tickets.title (may already be TEXT):', err.message);
   }
 
+  // 9) ticket_comments — threaded comments on tickets (FK cascades on ticket delete)
+  if (!(await tableExists('ticket_comments'))) {
+    console.log('Creating table: ticket_comments');
+    await sequelize.query(`
+      CREATE TABLE ticket_comments (
+        id CHAR(36) NOT NULL PRIMARY KEY,
+        ticket_id CHAR(36) NOT NULL,
+        organization_id CHAR(36) NULL,
+        author_id CHAR(36) NOT NULL,
+        parent_id CHAR(36) NULL,
+        body TEXT NOT NULL,
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL,
+        INDEX idx_ticket_comments_ticket (ticket_id),
+        INDEX idx_ticket_comments_parent (parent_id),
+        CONSTRAINT fk_ticket_comments_ticket FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
+      );
+    `);
+  } else {
+    console.log('Table ticket_comments already exists — skipping.');
+  }
+
+  // 10) ticket_events — immutable lifecycle timeline (FK cascades on ticket delete)
+  if (!(await tableExists('ticket_events'))) {
+    console.log('Creating table: ticket_events');
+    await sequelize.query(`
+      CREATE TABLE ticket_events (
+        id CHAR(36) NOT NULL PRIMARY KEY,
+        ticket_id CHAR(36) NOT NULL,
+        organization_id CHAR(36) NULL,
+        actor_id CHAR(36) NULL,
+        type VARCHAR(48) NOT NULL,
+        from_value VARCHAR(255) NULL,
+        to_value VARCHAR(255) NULL,
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL,
+        INDEX idx_ticket_events_ticket (ticket_id),
+        CONSTRAINT fk_ticket_events_ticket FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
+      );
+    `);
+  } else {
+    console.log('Table ticket_events already exists — skipping.');
+  }
+
   console.log('--- Migration complete ---');
   await sequelize.close();
 };
