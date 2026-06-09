@@ -165,7 +165,50 @@ const run = async () => {
     console.log('Table ticket_events already exists — skipping.');
   }
 
-  // 11) Purge orphaned notifications — rows pointing at tickets that were
+  // 11) conversations — 1:1 direct-message threads (org-scoped)
+  if (!(await tableExists('conversations'))) {
+    console.log('Creating table: conversations');
+    await sequelize.query(`
+      CREATE TABLE conversations (
+        id CHAR(36) NOT NULL PRIMARY KEY,
+        organization_id CHAR(36) NOT NULL,
+        user1_id CHAR(36) NOT NULL,
+        user2_id CHAR(36) NOT NULL,
+        last_message_at DATETIME NULL,
+        last_message_text VARCHAR(300) NULL,
+        last_message_sender_id CHAR(36) NULL,
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL,
+        UNIQUE KEY uniq_conversation_pair (organization_id, user1_id, user2_id),
+        INDEX idx_conversations_user1 (user1_id),
+        INDEX idx_conversations_user2 (user2_id)
+      );
+    `);
+  } else {
+    console.log('Table conversations already exists — skipping.');
+  }
+
+  // 12) messages — direct messages within a conversation
+  if (!(await tableExists('messages'))) {
+    console.log('Creating table: messages');
+    await sequelize.query(`
+      CREATE TABLE messages (
+        id CHAR(36) NOT NULL PRIMARY KEY,
+        conversation_id CHAR(36) NOT NULL,
+        sender_id CHAR(36) NOT NULL,
+        body TEXT NOT NULL,
+        read_at DATETIME NULL,
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL,
+        INDEX idx_messages_conversation (conversation_id),
+        CONSTRAINT fk_messages_conversation FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+      );
+    `);
+  } else {
+    console.log('Table messages already exists — skipping.');
+  }
+
+  // 13) Purge orphaned notifications — rows pointing at tickets that were
   //     deleted before cascade cleanup existed. Safe one-time data fix.
   console.log('Purging orphaned notifications (linked ticket no longer exists)');
   try {

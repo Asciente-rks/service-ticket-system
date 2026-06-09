@@ -5,6 +5,8 @@ import { TicketStatus } from '../modules/tickets/models/ticket-status.model';
 import { Approval } from '../modules/tickets/models/approval.model';
 import { Comment } from '../modules/tickets/models/comment.model';
 import { TicketEvent } from '../modules/tickets/models/ticket-event.model';
+import { Conversation } from '../modules/conversations/models/conversation.model';
+import { Message } from '../modules/conversations/models/message.model';
 import { Notification } from '../modules/notifications/models/notification.model';
 import { NotificationSettings } from '../modules/users/models/notification-settings.model';
 import { Organization } from '../modules/organizations/models/organization.model';
@@ -67,6 +69,13 @@ export const defineAssociations = () => {
     TicketEvent.belongsTo(Ticket, { foreignKey: 'ticketId', as: 'ticket' });
     User.hasMany(TicketEvent, { foreignKey: 'actorId', as: 'ticketEvents' });
     TicketEvent.belongsTo(User, { foreignKey: 'actorId', as: 'actor' });
+
+    // Direct-message conversations (1:1) and their messages.
+    Conversation.belongsTo(User, { foreignKey: 'user1Id', as: 'user1' });
+    Conversation.belongsTo(User, { foreignKey: 'user2Id', as: 'user2' });
+    Conversation.hasMany(Message, { foreignKey: 'conversationId', as: 'messages' });
+    Message.belongsTo(Conversation, { foreignKey: 'conversationId', as: 'conversation' });
+    Message.belongsTo(User, { foreignKey: 'senderId', as: 'sender' });
 
     console.log('Model associations defined.');
 };

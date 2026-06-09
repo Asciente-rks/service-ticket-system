@@ -10,6 +10,7 @@ import { authRouter } from "./modules/users/routes/auth.routes";
 import { organizationRouter } from "./modules/organizations/routes/organization.routes";
 import { ticketRouter } from "./modules/tickets/routes/ticket.routes";
 import { notificationRouter } from "./modules/notifications/routes/notification.routes";
+import { conversationRouter } from "./modules/conversations/routes/conversation.routes";
 import { globalLimiter } from "./middlewares/rate-limit.middleware";
 import { securityHeaders } from "./middlewares/security-headers.middleware";
 
@@ -87,6 +88,7 @@ app.use("/organizations", organizationRouter);
 app.use("/users", userRouter);
 app.use("/tickets", ticketRouter);
 app.use("/notifications", notificationRouter);
+app.use("/conversations", conversationRouter);
 
 app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
   if (err && typeof err.message === "string" && err.message.startsWith("Origin ")) {
