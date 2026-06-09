@@ -2,7 +2,6 @@ import * as commentRepository from '../repositories/comment.repository';
 import * as ticketRepository from '../repositories/ticket.repository';
 import * as userRepository from '../../users/repositories/user.repository';
 import * as notificationService from '../../notifications/services/notification.service';
-import { ROLES } from '../../../config/roles';
 
 const toCommentDto = (c: any) => ({
   id: c.id,
@@ -119,11 +118,9 @@ export const deleteComment = async (
     throw err;
   }
 
-  const actorRole = (roleId || '').toLowerCase();
-  const isAdmin =
-    actorRole === ROLES.SUPER_ADMIN.toLowerCase() || actorRole === ROLES.ADMIN.toLowerCase();
-  const isAuthor = String(comment.authorId) === String(userId);
-  if (!isAdmin && !isAuthor) {
+  // Author-only deletion: even Admins/SuperAdmins cannot delete another
+  // member's comment — only the person who wrote it can remove it.
+  if (String(comment.authorId) !== String(userId)) {
     const err: any = new Error('You can only delete your own comments.');
     err.statusCode = 403;
     throw err;

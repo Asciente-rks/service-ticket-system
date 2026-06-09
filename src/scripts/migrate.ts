@@ -165,6 +165,20 @@ const run = async () => {
     console.log('Table ticket_events already exists — skipping.');
   }
 
+  // 11) Purge orphaned notifications — rows pointing at tickets that were
+  //     deleted before cascade cleanup existed. Safe one-time data fix.
+  console.log('Purging orphaned notifications (linked ticket no longer exists)');
+  try {
+    const [result]: any = await sequelize.query(
+      `DELETE FROM notifications
+       WHERE ticket_id IS NOT NULL
+         AND ticket_id NOT IN (SELECT id FROM tickets);`,
+    );
+    console.log('Orphaned notifications purged:', result?.affectedRows ?? 'done');
+  } catch (err: any) {
+    console.warn('Could not purge orphaned notifications:', err.message);
+  }
+
   console.log('--- Migration complete ---');
   await sequelize.close();
 };
