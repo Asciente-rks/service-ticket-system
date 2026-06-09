@@ -63,25 +63,26 @@ Service Ticket System is a **multi-tenant SaaS** ticketing platform: every organ
 
 ```mermaid
 graph TB
-    Browser["Browser SPA<br/>React 19 + Vite 8 + Tailwind 4<br/>react-router 7 · jwt-decode · axios"]
-    Express["Express 4 API<br/>helmet · CORS · Sequelize 6<br/>routes: auth · users · tickets · notifications"]
-    Cron["node-cron in-process<br/>SLA reminders · stale-ticket scan"]
-    MySQL[("MySQL · free-tier hosted<br/>users · roles · tickets<br/>statuses · approvals · notifications")]
+    Browser["Browser SPA · Vercel<br/>React 19 + Vite 8 + Tailwind 4<br/>react-router 7 · jwt-decode · axios"]
+    URL["Lambda Function URL<br/>auth-type NONE · public"]
+    Lambda["AWS Lambda · Node 20<br/>Express 4 via serverless-http<br/>helmet · CORS · Sequelize 6<br/>auth · organizations · users · tickets · notifications"]
+    TiDB[("TiDB Cloud Serverless · MySQL<br/>organizations · users · roles · tickets<br/>statuses · approvals · notifications · email_verifications")]
+    Actions["GitHub Actions<br/>build → zip → deploy"]
 
-    Browser -->|REST + JWT via axios| Express
-    Express --> MySQL
-    Express -.spawn on boot.-> Cron
-    Cron --> MySQL
+    Browser -->|REST + JWT via axios| URL
+    URL --> Lambda
+    Lambda -->|TLS, lazy pooled conn| TiDB
+    Actions -.deploys.-> Lambda
 
-    classDef edge fill:#0f1422,stroke:#5eead4,color:#e2e8f0
-    classDef store fill:#0a0e1a,stroke:#5eead4,color:#5eead4
-    class Browser,Express,Cron edge
-    class MySQL store
+    classDef edge fill:#0f1422,stroke:#6366f1,color:#e2e8f0
+    classDef store fill:#0a0e1a,stroke:#6366f1,color:#a5b4fc
+    class Browser,URL,Lambda,Actions edge
+    class TiDB store
 ```
 
 ### Notable architectural choices
 
-- **Single Express process, no queue.** `helmet + cors + express.json + rate-limit → connectDB() → defineAssociations() → auto-seed → initCronJobs() → listen`. Everything boots in one process on Render's free tier.
+- **Express on Lambda, no always-on server.** The same Express app is wrapped with `serverless-http` and exposed through a Lambda Function URL. On a cold start the handler only wires model associations (in-memory); Sequelize opens the DB connection lazily on the first query and reuses it across warm invocations, so `/health` never depends on the DB. No API Gateway, no EventBridge — only the always-free Lambda tier.
 - **node-cron co-located with the API** saves an entire worker service. The trade-off is that horizontal scaling requires leader-election; at portfolio scale (single dyno) it is strictly better.
 - **Modular DDD-ish layout** — each domain (`tickets`, `users`, `notifications`) has its own `controllers / services / repositories / dtos / models / routes`. No cross-module imports beyond the associations file.
 - **Snake_case DB columns mapped to camelCase model attributes** via Sequelize `field:` — clean SQL audit trail, idiomatic TypeScript code.
