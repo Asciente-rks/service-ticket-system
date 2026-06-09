@@ -1,8 +1,8 @@
 name: Deploy Backend to AWS Lambda
 
 # Zero-cost CI/CD: builds the TypeScript, packages a zip, and creates/updates a
-# Lambda function exposed via a Lambda Function URL (no API Gateway = no extra
-# cost). Also wires a daily EventBridge schedule for the SLA stale-ticket job.
+# Lambda function exposed via a Lambda Function URL (no API Gateway, no
+# EventBridge — only the always-free Lambda tier is used).
 
 on:
   push:
@@ -17,7 +17,6 @@ env:
   AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
   FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME || 'service-ticket-system-api' }}
   ROLE_NAME: service-ticket-system-lambda-role
-  SCHEDULE_RULE: service-ticket-system-sla
 
 jobs:
   deploy:
@@ -158,32 +157,17 @@ jobs:
             aws lambda create-function-url-config \
               --function-name "$FUNCTION_NAME" \
               --auth-type NONE >/dev/null
-            aws lambda add-permission \
-              --function-name "$FUNCTION_NAME" \
-              --statement-id FunctionURLAllowPublicAccess \
-              --action lambda:InvokeFunctionUrl \
-              --principal '*' \
-              --function-url-auth-type NONE >/dev/null || true
           fi
-          FN_URL=$(aws lambda get-function-url-config --function-name "$FUNCTION_NAME" --query 'FunctionUrl' --output text)
-          echo "url=$FN_URL" >> "$GITHUB_OUTPUT"
-
-      - name: Ensure daily SLA cron (EventBridge)
-        run: |
-          set -euo pipefail
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          FN_ARN="arn:aws:lambda:${AWS_REGION}:${ACCOUNT_ID}:function:${FUNCTION_NAME}"
-          RULE_ARN="arn:aws:events:${AWS_REGION}:${ACCOUNT_ID}:rule/${SCHEDULE_RULE}"
-          # 09:00 UTC daily
-          aws events put-rule --name "$SCHEDULE_RULE" --schedule-expression "cron(0 9 * * ? *)" --state ENABLED >/dev/null
+          # Always ensure the public-invoke permission exists (idempotent — the
+          # statement is a no-op error if already present, which we ignore).
           aws lambda add-permission \
             --function-name "$FUNCTION_NAME" \
-            --statement-id "${SCHEDULE_RULE}-invoke" \
-            --action lambda:InvokeFunction \
-            --principal events.amazonaws.com \
-            --source-arn "$RULE_ARN" >/dev/null 2>&1 || true
-          aws events put-targets --rule "$SCHEDULE_RULE" \
-            --targets "Id=1,Arn=${FN_ARN},Input='{\"__cron\":true}'" >/dev/null
+            --statement-id FunctionURLAllowPublicAccess \
+            --action lambda:InvokeFunctionUrl \
+            --principal '*' \
+            --function-url-auth-type NONE >/dev/null 2>&1 || true
+          FN_URL=$(aws lambda get-function-url-config --function-name "$FUNCTION_NAME" --query 'FunctionUrl' --output text)
+          echo "url=$FN_URL" >> "$GITHUB_OUTPUT"
 
       - name: Output deployment summary
         run: |
