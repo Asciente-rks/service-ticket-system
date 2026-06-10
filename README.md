@@ -454,6 +454,21 @@ The frontend is a separate repo deployed independently to Vercel. It consumes th
 | PATCH | `/notifications/:id/read` | session + org | Mark a single notification read |
 | PATCH | `/notifications/read-all` | session + org | Mark all of the user's notifications read |
 
+### AI Assistant
+
+Free-tier LLMs (Groq first for speed, Google Gemini as fallback) with automatic provider/model switching whenever a per-minute or per-day rate limit is hit. The assistant has read-only, org-scoped function-calling tools (`query_tickets`, `get_ticket_details`, `get_ticket_stats`, `list_team_members`) and references tickets as `[ticket:<id>|<title>]` tokens, which the frontend renders as clickable links that open the ticket.
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| GET | `/ai/status` | session + org | `{ configured }` — whether any AI provider key is set |
+| GET | `/ai/conversations` | session + org | List the caller's AI chat threads |
+| POST | `/ai/conversations` | session + org | Create a new AI chat thread (optional `{ title }`) |
+| GET | `/ai/conversations/:id/messages` | session + org | Thread + messages (incl. `ticketRefs` for link rendering) |
+| POST | `/ai/conversations/:id/messages` | session + org | Send `{ body }`; runs the tool-calling agent loop, returns user + assistant messages |
+| PATCH | `/ai/conversations/:id` | session + org | Rename a thread `{ title }` |
+| DELETE | `/ai/conversations/:id` | session + org | Delete a thread and its messages |
+| POST | `/ai/tickets/:ticketId/ask` | session + org | Stateless in-ticket assistant: `{ question?, history? }` — empty question = summarize |
+
 ---
 
 ## Security
@@ -506,6 +521,7 @@ The backend runs on **AWS Lambda** behind a **Lambda Function URL** (no API Gate
 | `SKIP_DB_BOOTSTRAP` | `true` | Skips `CREATE DATABASE` on connect (managed DB) |
 | `DB_SSL` | `true` | TLS to TiDB |
 | `DB_*` / `JWT_SECRET` / `CORS_ORIGINS` / `EMAIL_USER` / `EMAIL_PASS` | from secrets | |
+| `GROQ_API_KEY` / `GEMINI_API_KEY` | from secrets | AI assistant providers (at least one required for `/ai/*`; both enables rate-limit fallback) |
 
 ### Local development & DB scripts
 
