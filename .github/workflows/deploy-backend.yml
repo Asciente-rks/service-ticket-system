@@ -100,12 +100,15 @@ jobs:
             --arg EMAIL_USER "${{ secrets.EMAIL_USER }}" \
             --arg EMAIL_PASS "${{ secrets.EMAIL_PASS }}" \
             --arg EXPOSE_OTP "${{ secrets.EXPOSE_OTP || 'false' }}" \
+            --arg GROQ_API_KEY "${{ secrets.GROQ_API_KEY }}" \
+            --arg GEMINI_API_KEY "${{ secrets.GEMINI_API_KEY }}" \
             '{Variables: ([
               {NODE_ENV:$NODE_ENV, SKIP_DB_BOOTSTRAP:$SKIP_DB_BOOTSTRAP, SEED_ON_BOOT:$SEED_ON_BOOT, DB_SSL:$DB_SSL, SERVICE_NAME:$SERVICE_NAME,
                DB_HOST:$DB_HOST, DB_PORT:$DB_PORT, DB_NAME:$DB_NAME, DB_USER:$DB_USER, DB_PASSWORD:$DB_PASSWORD,
                JWT_SECRET:$JWT_SECRET, JWT_EXPIRES_IN:$JWT_EXPIRES_IN, CORS_ORIGINS:$CORS_ORIGINS,
                EMAIL_USER:$EMAIL_USER, EMAIL_PASS:$EMAIL_PASS,
-               EXPOSE_OTP:$EXPOSE_OTP}
+               EXPOSE_OTP:$EXPOSE_OTP,
+               GROQ_API_KEY:$GROQ_API_KEY, GEMINI_API_KEY:$GEMINI_API_KEY}
               ] | add | with_entries(select(.value != "")))}' > env.json
           echo "Built env.json with $(jq '.Variables | length' env.json) variables."
 
