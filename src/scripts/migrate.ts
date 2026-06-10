@@ -208,7 +208,49 @@ const run = async () => {
     console.log('Table messages already exists — skipping.');
   }
 
-  // 13) Purge orphaned notifications — rows pointing at tickets that were
+  // 13) ai_conversations — per-user AI assistant chat threads (org-scoped)
+  if (!(await tableExists('ai_conversations'))) {
+    console.log('Creating table: ai_conversations');
+    await sequelize.query(`
+      CREATE TABLE ai_conversations (
+        id CHAR(36) NOT NULL PRIMARY KEY,
+        organization_id CHAR(36) NOT NULL,
+        user_id CHAR(36) NOT NULL,
+        title VARCHAR(255) NOT NULL DEFAULT 'New chat',
+        last_message_at DATETIME NULL,
+        last_message_preview VARCHAR(300) NULL,
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL,
+        INDEX idx_ai_conversations_user (user_id),
+        INDEX idx_ai_conversations_org (organization_id)
+      );
+    `);
+  } else {
+    console.log('Table ai_conversations already exists — skipping.');
+  }
+
+  // 14) ai_messages — messages within an AI conversation thread
+  if (!(await tableExists('ai_messages'))) {
+    console.log('Creating table: ai_messages');
+    await sequelize.query(`
+      CREATE TABLE ai_messages (
+        id CHAR(36) NOT NULL PRIMARY KEY,
+        conversation_id CHAR(36) NOT NULL,
+        role VARCHAR(16) NOT NULL,
+        body TEXT NOT NULL,
+        ticket_refs TEXT NULL,
+        meta TEXT NULL,
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL,
+        INDEX idx_ai_messages_conversation (conversation_id),
+        CONSTRAINT fk_ai_messages_conversation FOREIGN KEY (conversation_id) REFERENCES ai_conversations(id) ON DELETE CASCADE
+      );
+    `);
+  } else {
+    console.log('Table ai_messages already exists — skipping.');
+  }
+
+  // 15) Purge orphaned notifications — rows pointing at tickets that were
   //     deleted before cascade cleanup existed. Safe one-time data fix.
   console.log('Purging orphaned notifications (linked ticket no longer exists)');
   try {
