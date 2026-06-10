@@ -37,7 +37,52 @@ export const setPasswordSchema = yup.object({
     }),
 });
 
+export const forgotPasswordSchema = yup.object({
+    body: yup.object({
+        email: yup.string().email('Must be a valid email').required('Email is required'),
+    }),
+});
+
+export const verifyResetOtpSchema = yup.object({
+    body: yup.object({
+        email: yup.string().email('Must be a valid email').required('Email is required'),
+        code: yup.string().trim().length(6, 'Code must be 6 digits').required('Code is required'),
+    }),
+});
+
+export const resetPasswordSchema = yup.object({
+    body: yup.object({
+        resetToken: yup.string().required('Reset token is required'),
+        password: yup.string().required('Password is required').min(8, 'Password must be at least 8 characters'),
+    }),
+});
+
+export const changePasswordSchema = yup.object({
+    body: yup.object({
+        currentPassword: yup.string().required('Current password is required'),
+        newPassword: yup.string().required('New password is required').min(8, 'New password must be at least 8 characters'),
+    }),
+});
+
+export const updateProfileSchema = yup.object({
+    body: yup.object({
+        currentPassword: yup.string().required('Current password is required to change your profile'),
+        name: yup.string().trim().min(1, 'Name cannot be empty'),
+        email: yup.string().email('Must be a valid email'),
+    }).test(
+        'at-least-one-field',
+        'Provide a new name or email to update.',
+        (value) => value.name !== undefined || value.email !== undefined,
+    ),
+});
+
 export const createOrganizationSchema = yup.object({
+    body: yup.object({
+        name: yup.string().trim().min(2, 'Organization name must be at least 2 characters').required('Organization name is required'),
+    }),
+});
+
+export const updateOrganizationSchema = yup.object({
     body: yup.object({
         name: yup.string().trim().min(2, 'Organization name must be at least 2 characters').required('Organization name is required'),
     }),

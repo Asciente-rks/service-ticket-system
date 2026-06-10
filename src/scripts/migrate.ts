@@ -104,6 +104,166 @@ const run = async () => {
     console.log('Column notifications.organization_id already exists — skipping.');
   }
 
+  // 7) tickets.jam_url — optional Jam (jam.dev) recording link on a ticket
+  if (!(await columnExists('tickets', 'jam_url'))) {
+    console.log('Adding column: tickets.jam_url');
+    await sequelize.query(`ALTER TABLE tickets ADD COLUMN jam_url TEXT NULL;`);
+  } else {
+    console.log('Column tickets.jam_url already exists — skipping.');
+  }
+
+  // 8) tickets.title -> TEXT (remove the legacy 255-char cap so titles can be
+  //    any length). Safe/idempotent: widening VARCHAR to TEXT never truncates.
+  console.log('Widening tickets.title to TEXT');
+  try {
+    await sequelize.query(`ALTER TABLE tickets MODIFY title TEXT NOT NULL;`);
+  } catch (err: any) {
+    console.warn('Could not modify tickets.title (may already be TEXT):', err.message);
+  }
+
+  // 9) ticket_comments — threaded comments on tickets (FK cascades on ticket delete)
+  if (!(await tableExists('ticket_comments'))) {
+    console.log('Creating table: ticket_comments');
+    await sequelize.query(`
+      CREATE TABLE ticket_comments (
+        id CHAR(36) NOT NULL PRIMARY KEY,
+        ticket_id CHAR(36) NOT NULL,
+        organization_id CHAR(36) NULL,
+        author_id CHAR(36) NOT NULL,
+        parent_id CHAR(36) NULL,
+        body TEXT NOT NULL,
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL,
+        INDEX idx_ticket_comments_ticket (ticket_id),
+        INDEX idx_ticket_comments_parent (parent_id),
+        CONSTRAINT fk_ticket_comments_ticket FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
+      );
+    `);
+  } else {
+    console.log('Table ticket_comments already exists — skipping.');
+  }
+
+  // 10) ticket_events — immutable lifecycle timeline (FK cascades on ticket delete)
+  if (!(await tableExists('ticket_events'))) {
+    console.log('Creating table: ticket_events');
+    await sequelize.query(`
+      CREATE TABLE ticket_events (
+        id CHAR(36) NOT NULL PRIMARY KEY,
+        ticket_id CHAR(36) NOT NULL,
+        organization_id CHAR(36) NULL,
+        actor_id CHAR(36) NULL,
+        type VARCHAR(48) NOT NULL,
+        from_value VARCHAR(255) NULL,
+        to_value VARCHAR(255) NULL,
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL,
+        INDEX idx_ticket_events_ticket (ticket_id),
+        CONSTRAINT fk_ticket_events_ticket FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
+      );
+    `);
+  } else {
+    console.log('Table ticket_events already exists — skipping.');
+  }
+
+  // 11) conversations — 1:1 direct-message threads (org-scoped)
+  if (!(await tableExists('conversations'))) {
+    console.log('Creating table: conversations');
+    await sequelize.query(`
+      CREATE TABLE conversations (
+        id CHAR(36) NOT NULL PRIMARY KEY,
+        organization_id CHAR(36) NOT NULL,
+        user1_id CHAR(36) NOT NULL,
+        user2_id CHAR(36) NOT NULL,
+        last_message_at DATETIME NULL,
+        last_message_text VARCHAR(300) NULL,
+        last_message_sender_id CHAR(36) NULL,
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL,
+        UNIQUE KEY uniq_conversation_pair (organization_id, user1_id, user2_id),
+        INDEX idx_conversations_user1 (user1_id),
+        INDEX idx_conversations_user2 (user2_id)
+      );
+    `);
+  } else {
+    console.log('Table conversations already exists — skipping.');
+  }
+
+  // 12) messages — direct messages within a conversation
+  if (!(await tableExists('messages'))) {
+    console.log('Creating table: messages');
+    await sequelize.query(`
+      CREATE TABLE messages (
+        id CHAR(36) NOT NULL PRIMARY KEY,
+        conversation_id CHAR(36) NOT NULL,
+        sender_id CHAR(36) NOT NULL,
+        body TEXT NOT NULL,
+        read_at DATETIME NULL,
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL,
+        INDEX idx_messages_conversation (conversation_id),
+        CONSTRAINT fk_messages_conversation FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+      );
+    `);
+  } else {
+    console.log('Table messages already exists — skipping.');
+  }
+
+  // 13) ai_conversations — per-user AI assistant chat threads (org-scoped)
+  if (!(await tableExists('ai_conversations'))) {
+    console.log('Creating table: ai_conversations');
+    await sequelize.query(`
+      CREATE TABLE ai_conversations (
+        id CHAR(36) NOT NULL PRIMARY KEY,
+        organization_id CHAR(36) NOT NULL,
+        user_id CHAR(36) NOT NULL,
+        title VARCHAR(255) NOT NULL DEFAULT 'New chat',
+        last_message_at DATETIME NULL,
+        last_message_preview VARCHAR(300) NULL,
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL,
+        INDEX idx_ai_conversations_user (user_id),
+        INDEX idx_ai_conversations_org (organization_id)
+      );
+    `);
+  } else {
+    console.log('Table ai_conversations already exists — skipping.');
+  }
+
+  // 14) ai_messages — messages within an AI conversation thread
+  if (!(await tableExists('ai_messages'))) {
+    console.log('Creating table: ai_messages');
+    await sequelize.query(`
+      CREATE TABLE ai_messages (
+        id CHAR(36) NOT NULL PRIMARY KEY,
+        conversation_id CHAR(36) NOT NULL,
+        role VARCHAR(16) NOT NULL,
+        body TEXT NOT NULL,
+        ticket_refs TEXT NULL,
+        meta TEXT NULL,
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL,
+        INDEX idx_ai_messages_conversation (conversation_id),
+        CONSTRAINT fk_ai_messages_conversation FOREIGN KEY (conversation_id) REFERENCES ai_conversations(id) ON DELETE CASCADE
+      );
+    `);
+  } else {
+    console.log('Table ai_messages already exists — skipping.');
+  }
+
+  // 15) Purge orphaned notifications — rows pointing at tickets that were
+  //     deleted before cascade cleanup existed. Safe one-time data fix.
+  console.log('Purging orphaned notifications (linked ticket no longer exists)');
+  try {
+    const [result]: any = await sequelize.query(
+      `DELETE FROM notifications
+       WHERE ticket_id IS NOT NULL
+         AND ticket_id NOT IN (SELECT id FROM tickets);`,
+    );
+    console.log('Orphaned notifications purged:', result?.affectedRows ?? 'done');
+  } catch (err: any) {
+    console.warn('Could not purge orphaned notifications:', err.message);
+  }
+
   console.log('--- Migration complete ---');
   await sequelize.close();
 };

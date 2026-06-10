@@ -3,6 +3,14 @@ import * as userRepository from '../../users/repositories/user.repository';
 import * as notificationSettingService from '../../users/services/notification-setting.service';
 import { signUserToken } from '../../../utils/token';
 import { ROLES } from '../../../config/roles';
+import { sequelize } from '../../../config/db';
+import { Organization } from '../models/organization.model';
+import { User } from '../../users/models/user.model';
+import { Ticket } from '../../tickets/models/ticket.model';
+import { Approval } from '../../tickets/models/approval.model';
+import { Notification } from '../../notifications/models/notification.model';
+import { NotificationSettings } from '../../users/models/notification-settings.model';
+import { Op } from 'sequelize';
 
 const INVITE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no ambiguous chars
 
@@ -43,12 +51,17 @@ const generateUniqueInviteCode = async (): Promise<string> => {
     }
 };
 
-const toOrganizationDto = (org: any, memberCount: number, includeInvite: boolean) => ({
+const toOrganizationDto = (
+    org: any,
+    memberCount: number,
+    includeInvite: boolean,
+    isOwner = false,
+) => ({
     id: org.id,
     name: org.name,
     slug: org.slug,
     memberCount,
-    isOwner: false,
+    isOwner,
     ...(includeInvite ? { inviteCode: org.inviteCode } : {}),
     createdAt: org.createdAt,
 });
@@ -148,10 +161,123 @@ export const joinOrganization = async (userId: string, inviteCode: string) => {
     };
 };
 
-export const getMyOrganization = async (organizationId: string, isAdmin: boolean) => {
+export const getMyOrganization = async (
+    organizationId: string,
+    isAdmin: boolean,
+    userId?: string,
+) => {
     const org = await organizationRepository.findById(organizationId);
     if (!org) return null;
     const memberCount = await organizationRepository.countMembers(organizationId);
-    const dto = toOrganizationDto(org, memberCount, isAdmin);
+    const isOwner = !!userId && String((org as any).ownerId) === String(userId);
+    const dto = toOrganizationDto(org, memberCount, isAdmin, isOwner);
     return dto;
+};
+
+/** Rename an organization. Caller must be an Admin/SuperAdmin of the org (route-gated). */
+export const renameOrganization = async (
+    organizationId: string,
+    name: string,
+) => {
+    const org = await organizationRepository.findById(organizationId);
+    if (!org) {
+        const err: any = new Error('Organization not found.');
+        err.statusCode = 404;
+        throw err;
+    }
+
+    const trimmed = name.trim();
+    await organizationRepository.update(organizationId, { name: trimmed });
+
+    const refreshed = await organizationRepository.findById(organizationId);
+    const memberCount = await organizationRepository.countMembers(organizationId);
+    return toOrganizationDto(refreshed, memberCount, true);
+};
+
+/** Issue a fresh invite code, invalidating the previous one. */
+export const regenerateInviteCode = async (organizationId: string) => {
+    const org = await organizationRepository.findById(organizationId);
+    if (!org) {
+        const err: any = new Error('Organization not found.');
+        err.statusCode = 404;
+        throw err;
+    }
+
+    const inviteCode = await generateUniqueInviteCode();
+    await organizationRepository.update(organizationId, { inviteCode } as any);
+
+    return { inviteCode };
+};
+
+/**
+ * Permanently delete an organization and all of its data. Owner-only.
+ *
+ * Members (including the owner) are detached — their accounts survive but are
+ * reset to "no organization / no role" so they're routed back to onboarding.
+ * All org-scoped tickets, approvals and notifications are removed. Runs in a
+ * transaction so a partial failure rolls everything back. Returns a fresh token
+ * for the owner reflecting their now org-less state.
+ */
+export const deleteOrganization = async (organizationId: string, userId: string) => {
+    const org = await organizationRepository.findById(organizationId);
+    if (!org) {
+        const err: any = new Error('Organization not found.');
+        err.statusCode = 404;
+        throw err;
+    }
+
+    if (String((org as any).ownerId) !== String(userId)) {
+        const err: any = new Error('Only the organization owner can delete it.');
+        err.statusCode = 403;
+        throw err;
+    }
+
+    const owner = await userRepository.findBasicById(userId);
+
+    await sequelize.transaction(async (transaction) => {
+        const tickets = await Ticket.findAll({
+            where: { organizationId },
+            attributes: ['id'],
+            transaction,
+        });
+        const ticketIds = tickets.map((t: any) => t.id);
+
+        if (ticketIds.length) {
+            await Approval.destroy({ where: { ticketId: { [Op.in]: ticketIds } }, transaction });
+        }
+
+        await Notification.destroy({ where: { organizationId }, transaction });
+        await Ticket.destroy({ where: { organizationId }, transaction });
+
+        const members = await User.findAll({
+            where: { organizationId },
+            attributes: ['id'],
+            transaction,
+        });
+        const memberIds = members.map((m: any) => m.id);
+
+        if (memberIds.length) {
+            await NotificationSettings.destroy({
+                where: { userId: { [Op.in]: memberIds } },
+                transaction,
+            });
+            // Detach members: keep accounts, drop org membership + role.
+            await User.update(
+                { organizationId: null, roleId: null },
+                { where: { organizationId }, transaction },
+            );
+        }
+
+        await Organization.destroy({ where: { id: organizationId }, transaction });
+    });
+
+    const token = signUserToken({
+        id: userId,
+        roleId: null,
+        organizationId: null,
+        email: (owner as any)?.email ?? '',
+        role: '',
+    });
+
+    return { success: true, token };
 };

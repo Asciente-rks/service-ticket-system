@@ -119,6 +119,58 @@ export const deleteUser = async (id: string, organizationId: string) => {
     return await userRepository.remove(id);
 }
 
+export const getOwnProfile = async (
+    userId: string,
+): Promise<(UserResponseDto & { createdAt: Date | null }) | null> => {
+    const user = await userRepository.findProfileById(userId);
+    if (!user) return null;
+    return { ...toUserResponseDto(user), createdAt: (user as any).createdAt ?? null };
+};
+
+export type ProfileUpdateResult =
+    | { ok: true; user: UserResponseDto; emailChanged: boolean }
+    | { ok: false; code: 'NOT_FOUND' | 'BAD_PASSWORD' | 'EMAIL_TAKEN' };
+
+/**
+ * Self-service profile update. Always requires the current password, even for a
+ * name-only change, so identity changes (name/email) are gated behind it.
+ */
+export const updateOwnProfile = async (
+    userId: string,
+    payload: { currentPassword: string; name?: string; email?: string },
+): Promise<ProfileUpdateResult> => {
+    const user = await userRepository.findByIdWithSecret(userId);
+    if (!user) return { ok: false, code: 'NOT_FOUND' };
+
+    const isPasswordValid = await bcrypt.compare(payload.currentPassword, (user as any).password);
+    if (!isPasswordValid) return { ok: false, code: 'BAD_PASSWORD' };
+
+    const updates: Record<string, any> = {};
+    let emailChanged = false;
+
+    if (payload.name !== undefined) {
+        updates.name = payload.name.trim();
+    }
+
+    if (payload.email !== undefined) {
+        const normalizedEmail = String(payload.email).trim().toLowerCase();
+        if (normalizedEmail !== String((user as any).email).toLowerCase()) {
+            const existing = await userRepository.findByEmail(normalizedEmail);
+            if (existing && String((existing as any).id) !== String(userId)) {
+                return { ok: false, code: 'EMAIL_TAKEN' };
+            }
+            updates.email = normalizedEmail;
+            emailChanged = true;
+        }
+    }
+
+    const updated = Object.keys(updates).length
+        ? await userRepository.update(userId, updates)
+        : user;
+
+    return { ok: true, user: toUserResponseDto(updated), emailChanged };
+};
+
 const toUserResponseDto = (user: any): UserResponseDto => {
   return {
     id: user.id.toString(),

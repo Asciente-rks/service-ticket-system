@@ -41,10 +41,54 @@ export const getMyOrganization = async (req: AuthRequest, res: Response) => {
     const org = await organizationService.getMyOrganization(
       req.user.organizationId,
       isAdminRole(req.user.roleId),
+      req.user.id,
     );
     if (!org) return res.status(404).json({ message: 'Organization not found.' });
     res.status(200).json(org);
   } catch (error: any) {
     res.status(500).json({ message: error.message || 'Could not load organization.' });
+  }
+};
+
+export const updateOrganization = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+    if (!req.user.organizationId) {
+      return res.status(404).json({ message: 'You are not part of an organization yet.' });
+    }
+    const { name } = req.body as { name: string };
+    const org = await organizationService.renameOrganization(req.user.organizationId, name);
+    res.status(200).json(org);
+  } catch (error: any) {
+    const status = error.statusCode || 500;
+    res.status(status).json({ message: error.message || 'Could not update organization.' });
+  }
+};
+
+export const regenerateInviteCode = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+    if (!req.user.organizationId) {
+      return res.status(404).json({ message: 'You are not part of an organization yet.' });
+    }
+    const result = await organizationService.regenerateInviteCode(req.user.organizationId);
+    res.status(200).json(result);
+  } catch (error: any) {
+    const status = error.statusCode || 500;
+    res.status(status).json({ message: error.message || 'Could not regenerate invite code.' });
+  }
+};
+
+export const deleteOrganization = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+    if (!req.user.organizationId) {
+      return res.status(404).json({ message: 'You are not part of an organization yet.' });
+    }
+    const result = await organizationService.deleteOrganization(req.user.organizationId, req.user.id);
+    res.status(200).json(result);
+  } catch (error: any) {
+    const status = error.statusCode || 500;
+    res.status(status).json({ message: error.message || 'Could not delete organization.' });
   }
 };

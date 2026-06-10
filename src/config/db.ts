@@ -14,14 +14,23 @@ const sslDialectOptions = useSsl
     }
   : {};
 
+const DB_TARGET_HOST = process.env.DB_HOST;
+const DB_TARGET_PORT = Number(process.env.DB_PORT) || 4000;
+
+// Diagnostic (no credentials): shows in CloudWatch exactly which host:port the
+// Lambda is dialing, so a wrong DB_HOST/DB_PORT secret is obvious.
+console.log(
+  `[db] target=${DB_TARGET_HOST || '(DB_HOST UNSET)'}:${DB_TARGET_PORT} ssl=${useSsl}`,
+);
+
 export const sequelize = new Sequelize(
   process.env.DB_NAME!,
   process.env.DB_USER!,
   process.env.DB_PASSWORD!,
   {
-    host: process.env.DB_HOST,
+    host: DB_TARGET_HOST,
     dialect: 'mysql',
-    port: Number(process.env.DB_PORT) || 4000,
+    port: DB_TARGET_PORT,
     logging: process.env.NODE_ENV === 'production' ? false : console.log,
     dialectOptions: sslDialectOptions,
     // Small pool: in Lambda each warm container handles one request at a time,

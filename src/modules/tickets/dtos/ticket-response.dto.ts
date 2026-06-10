@@ -8,6 +8,7 @@ export interface TicketResponseDto {
   id: string;
   title: string;
   description: string;
+  jamUrl: string | null;
   status: string;
   priority: 'Low' | 'Medium' | 'High';
   reporter: TicketUser;

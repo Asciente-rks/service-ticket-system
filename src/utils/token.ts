@@ -38,3 +38,17 @@ export const verifyRegistrationToken = (token: string): string => {
   }
   return decoded.email as string;
 };
+
+/** Short-lived token proving an email was OTP-verified, used to gate reset-password. */
+export const signResetToken = (email: string): string =>
+  jwt.sign({ email, purpose: 'reset' }, process.env.JWT_SECRET!, {
+    expiresIn: REGISTRATION_EXPIRY,
+  } as jwt.SignOptions);
+
+export const verifyResetToken = (token: string): string => {
+  const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
+  if (!decoded || decoded.purpose !== 'reset' || !decoded.email) {
+    throw new Error('Invalid reset token');
+  }
+  return decoded.email as string;
+};
