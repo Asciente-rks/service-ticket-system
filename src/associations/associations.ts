@@ -7,6 +7,8 @@ import { Comment } from '../modules/tickets/models/comment.model';
 import { TicketEvent } from '../modules/tickets/models/ticket-event.model';
 import { Conversation } from '../modules/conversations/models/conversation.model';
 import { Message } from '../modules/conversations/models/message.model';
+import { AiConversation } from '../modules/ai/models/ai-conversation.model';
+import { AiMessage } from '../modules/ai/models/ai-message.model';
 import { Notification } from '../modules/notifications/models/notification.model';
 import { NotificationSettings } from '../modules/users/models/notification-settings.model';
 import { Organization } from '../modules/organizations/models/organization.model';
@@ -76,6 +78,12 @@ export const defineAssociations = () => {
     Conversation.hasMany(Message, { foreignKey: 'conversationId', as: 'messages' });
     Message.belongsTo(Conversation, { foreignKey: 'conversationId', as: 'conversation' });
     Message.belongsTo(User, { foreignKey: 'senderId', as: 'sender' });
+
+    // AI assistant conversation threads (per-user) and their messages.
+    User.hasMany(AiConversation, { foreignKey: 'userId', as: 'aiConversations' });
+    AiConversation.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+    AiConversation.hasMany(AiMessage, { foreignKey: 'conversationId', as: 'messages' });
+    AiMessage.belongsTo(AiConversation, { foreignKey: 'conversationId', as: 'conversation' });
 
     console.log('Model associations defined.');
 };
