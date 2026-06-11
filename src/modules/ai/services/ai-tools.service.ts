@@ -28,6 +28,7 @@ export interface TicketRef {
   title: string;
   status?: string;
   priority?: string;
+  collectionId?: string | null;
 }
 
 export interface ToolContext {
@@ -60,6 +61,7 @@ const toTicketRef = (t: any) => ({
   title: t.title,
   status: t.status?.name,
   priority: t.priority || undefined,
+  collectionId: t.collectionId ?? t.collection?.id ?? null,
 });
 
 export const toolDefinitions: ToolDefinition[] = [
@@ -303,7 +305,7 @@ const queryComments = async (ctx: ToolContext, args: any) => {
   const ticketJoin = {
     model: Ticket,
     as: 'ticket',
-    attributes: ['id', 'title', 'priority'],
+    attributes: ['id', 'title', 'priority', 'collectionId'],
     where: { organizationId: ctx.organizationId },
     required: true,
     include: [{ model: TicketStatus, as: 'status', attributes: ['name'] }],
@@ -323,7 +325,7 @@ const queryComments = async (ctx: ToolContext, args: any) => {
 
   const refMap = new Map<string, any>();
   for (const c of comments as any[]) {
-    if (c.ticket) refMap.set(c.ticket.id, { id: c.ticket.id, title: c.ticket.title, status: c.ticket.status?.name, priority: c.ticket.priority || undefined });
+    if (c.ticket) refMap.set(c.ticket.id, { id: c.ticket.id, title: c.ticket.title, status: c.ticket.status?.name, priority: c.ticket.priority || undefined, collectionId: c.ticket.collectionId ?? null });
   }
 
   return {
@@ -366,7 +368,7 @@ const queryActivity = async (ctx: ToolContext, args: any) => {
   const ticketJoin = {
     model: Ticket,
     as: 'ticket',
-    attributes: ['id', 'title', 'priority'],
+    attributes: ['id', 'title', 'priority', 'collectionId'],
     where: { organizationId: ctx.organizationId },
     required: true,
     include: [{ model: TicketStatus, as: 'status', attributes: ['name'] }],
@@ -386,7 +388,7 @@ const queryActivity = async (ctx: ToolContext, args: any) => {
 
   const refMap = new Map<string, any>();
   for (const e of events as any[]) {
-    if (e.ticket) refMap.set(e.ticket.id, { id: e.ticket.id, title: e.ticket.title, status: e.ticket.status?.name, priority: e.ticket.priority || undefined });
+    if (e.ticket) refMap.set(e.ticket.id, { id: e.ticket.id, title: e.ticket.title, status: e.ticket.status?.name, priority: e.ticket.priority || undefined, collectionId: e.ticket.collectionId ?? null });
   }
 
   return {

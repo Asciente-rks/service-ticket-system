@@ -41,8 +41,8 @@ export const getMessages = async (req: AuthRequest, res: Response) => {
 export const sendMessage = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-    const { body } = req.body as { body: string };
-    const data = await aiChatService.sendMessage(req.user.organizationId!, req.user.id, req.params.id, body);
+    const { body, collectionId } = req.body as { body: string; collectionId?: string };
+    const data = await aiChatService.sendMessage(req.user.organizationId!, req.user.id, req.params.id, body, collectionId || null);
     res.status(201).json(data);
   } catch (error: any) {
     res.status(error.statusCode || 500).json({ message: error.message || 'Could not send message.' });

@@ -33,7 +33,8 @@ ticketRouter.use((req: Request, res: Response, next: NextFunction) => {
     });
 });
 
-ticketRouter.post('/', authorizeRoles([ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.TESTER]), validate(createTicketSchema), createTicket);
+// Every org member (including Developers) can report tickets.
+ticketRouter.post('/', validate(createTicketSchema), createTicket);
 ticketRouter.get('/', listTickets);
 ticketRouter.get('/:id', validate(ticketIdParamsSchema), getTicket);
 ticketRouter.patch('/:id', validate(updateTicketSchema), updateTicket);

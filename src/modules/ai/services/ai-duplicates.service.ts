@@ -41,6 +41,7 @@ const toRef = (t: any): TicketRef => ({
   title: t.title,
   status: t.status?.name,
   priority: t.priority || undefined,
+  collectionId: t.collectionId ?? null,
 });
 
 /** Re-check a cached result against live data: drop deleted/resolved tickets. */
@@ -50,7 +51,7 @@ const reverifyGroups = async (groups: DuplicateGroup[]): Promise<DuplicateGroup[
   const alive: any[] = await Ticket.findAll({
     where: { id: { [Op.in]: ids }, statusId: { [Op.notIn]: RESOLVED_STATUS_IDS } },
     include: ticketIncludes,
-    attributes: ['id', 'title', 'priority', 'statusId'],
+    attributes: ['id', 'title', 'priority', 'statusId', 'collectionId'],
   });
   const aliveMap = new Map(alive.map((t) => [String(t.id), t]));
   return groups

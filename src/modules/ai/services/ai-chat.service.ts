@@ -48,13 +48,14 @@ Rules:
 - Chain tools freely. For summaries, opinions or next-step suggestions about a specific ticket, find it with query_tickets then ALWAYS call get_ticket_details — the description, comments and activity make your answer specific instead of generic.
 - For "recent" questions, rely on the date values returned by tools (already in Philippine time).
 - Duplicate review: after calling find_duplicate_tickets, briefly present each group (reason + ticket links). The app renders Open/Delete/Keep controls under your reply — tell the user to confirm with those controls or keep everything for now. You cannot delete tickets yourself.
+- Duplicate re-check: when the user says they deleted tickets (or asks to verify again), ALWAYS call find_duplicate_tickets again with the same scope. If groups remain, present only the remaining ones. If none remain, close the loop professionally, e.g.: "All clear — no duplicate tickets remain in <scope>. This review is complete; you may safely close this chat."
 
 ## Ticket links
 When you mention a specific ticket, reference it inline using EXACTLY this format: [ticket:TICKET_ID|TICKET_TITLE] — for example [ticket:123e4567-e89b-12d3-a456-426614174000|Login button broken]. The app renders these as clickable buttons that open the ticket. Use one for every ticket you mention; never put them inside markdown links or code blocks.
 
 ## How NexusTrack works (platform knowledge)
-- Roles: SuperAdmin and Admin (manage the team, approve/review tickets), Tester (reports bugs, verifies fixes), Developer (fixes assigned tickets). Tickets can be created by SuperAdmins, Admins and Testers from the Dashboard's "New Ticket" button.
-- Collections: tickets are grouped into Collections — one per system/product the team tracks (e.g. "Mobile App", "Billing"). The Collections page lists them; opening one shows that collection's own ticket dashboard. Admins/SuperAdmins create, rename and delete collections; a ticket's collection is chosen when creating or editing it.
+- Roles: SuperAdmin and Admin (manage the team, approve/review tickets), Tester (reports bugs, verifies fixes), Developer (fixes assigned tickets). ANY member can create tickets from their collection's dashboard ("New Ticket" button).
+- Collections: tickets are grouped into Collections — one per system/product the team tracks (e.g. "Mobile App", "Billing"). Each collection is a SEPARATE project space with its own dashboard; projects are never mixed. New tickets automatically belong to the collection whose dashboard they were created from. Admins/SuperAdmins create, rename and delete collections from the Collections page.
 - Ticket lifecycle statuses: Open → In Progress → Ready for QA → (Error Persists if QA fails) → Resolved → Closed.
 - Priorities: Low, Medium, High.
 - Each ticket has a reporter, an optional assignee, comments (threaded discussion) and an activity timeline. Bug reports can include a Jam recording link.
@@ -224,8 +225,12 @@ const extractInlineRefs = (text: string): TicketRef[] => {
 const runAgentLoop = async (
   ctx: ToolContext,
   history: ChatMessage[],
+  contextNote?: string,
 ): Promise<{ content: string; ticketRefs: TicketRef[]; duplicateGroups: DuplicateGroup[] | null; provider: string; model: string }> => {
-  const messages: ChatMessage[] = [{ role: 'system', content: buildSystemPrompt() }, ...history];
+  const messages: ChatMessage[] = [
+    { role: 'system', content: buildSystemPrompt() + (contextNote || '') },
+    ...history,
+  ];
   const collectedRefs: Map<string, TicketRef> = new Map();
   let duplicateGroups: DuplicateGroup[] | null = null;
   let provider = '';
@@ -297,8 +302,19 @@ export const sendMessage = async (
   userId: string,
   conversationId: string,
   body: string,
+  contextCollectionId?: string | null,
 ): Promise<SendMessageResult> => {
   const conversation = await findOwnedConversation(organizationId, userId, conversationId);
+
+  // Optional collection context: the user is working inside one collection's
+  // workspace, so the assistant defaults its queries to that scope.
+  let contextNote = '';
+  if (contextCollectionId) {
+    const contextCollection = await Collection.findByPk(contextCollectionId);
+    if (contextCollection && String(contextCollection.organizationId) === String(organizationId)) {
+      contextNote = `\n\n## Active collection context\nThe user is currently working inside the "${contextCollection.name}" collection (their active project space). Default every ticket query and duplicate check to this collection — pass collection:"${contextCollection.name}" to query_tickets / find_duplicate_tickets — unless the user explicitly asks about another collection or the whole organization.`;
+    }
+  }
 
   const userMessage = await AiMessage.create({
     conversationId: conversation.id,
@@ -329,7 +345,7 @@ export const sendMessage = async (
     model: string;
   };
   try {
-    reply = await runAgentLoop(ctx, history);
+    reply = await runAgentLoop(ctx, history, contextNote);
   } catch (error: any) {
     // Persist a friendly assistant-side error so the thread stays coherent.
     const friendly =

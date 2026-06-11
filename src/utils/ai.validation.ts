@@ -19,6 +19,7 @@ export const sendAiMessageSchema = yup.object({
       .trim()
       .required('Message cannot be empty')
       .max(4000, 'Message is too long (max 4000 characters)'),
+    collectionId: yup.string().uuid('Invalid collection id').optional(),
   }),
   params: yup.object({
     id: yup.string().uuid('Invalid conversation id').required('Conversation id is required'),
