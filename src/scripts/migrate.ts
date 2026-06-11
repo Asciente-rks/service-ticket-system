@@ -282,7 +282,17 @@ const run = async () => {
     console.log('Column tickets.collection_id already exists — skipping.');
   }
 
-  // 17) Purge orphaned notifications — rows pointing at tickets that were
+  // 17) ai_conversations.collection_id — AI chats are scoped per collection
+  if (await tableExists('ai_conversations')) {
+    if (!(await columnExists('ai_conversations', 'collection_id'))) {
+      console.log('Adding column: ai_conversations.collection_id');
+      await sequelize.query(`ALTER TABLE ai_conversations ADD COLUMN collection_id CHAR(36) NULL;`);
+    } else {
+      console.log('Column ai_conversations.collection_id already exists — skipping.');
+    }
+  }
+
+  // 18) Purge orphaned notifications — rows pointing at tickets that were
   //     deleted before cascade cleanup existed. Safe one-time data fix.
   console.log('Purging orphaned notifications (linked ticket no longer exists)');
   try {

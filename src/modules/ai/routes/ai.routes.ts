@@ -17,6 +17,7 @@ import { ensureAiTables } from '../services/ai-bootstrap.service';
 import { Request, Response, NextFunction } from 'express';
 import {
   createAiConversationSchema,
+  listAiConversationsQuerySchema,
   aiConversationIdParamsSchema,
   sendAiMessageSchema,
   renameAiConversationSchema,
@@ -52,7 +53,7 @@ aiRouter.get('/status', getStatus);
 // AI duplicate-ticket detection (cached server-side; powers the dashboard banner).
 aiRouter.get('/duplicates', aiGenerationLimiter, validate(aiDuplicatesQuerySchema), getDuplicates);
 
-aiRouter.get('/conversations', listConversations);
+aiRouter.get('/conversations', validate(listAiConversationsQuerySchema), listConversations);
 aiRouter.post('/conversations', validate(createAiConversationSchema), createConversation);
 aiRouter.get('/conversations/:id/messages', validate(aiConversationIdParamsSchema), getMessages);
 aiRouter.post(

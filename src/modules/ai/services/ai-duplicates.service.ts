@@ -19,6 +19,7 @@ import type { TicketRef } from './ai-tools.service';
 
 export interface DuplicateGroup {
   reason: string;
+  confidence?: 'high' | 'medium';
   tickets: TicketRef[];
 }
 
@@ -57,12 +58,13 @@ const reverifyGroups = async (groups: DuplicateGroup[]): Promise<DuplicateGroup[
   return groups
     .map((g) => ({
       reason: g.reason,
+      confidence: g.confidence,
       tickets: g.tickets.filter((t) => aliveMap.has(String(t.id))).map((t) => toRef(aliveMap.get(String(t.id)))),
     }))
     .filter((g) => g.tickets.length >= 2);
 };
 
-const parseModelJson = (raw: string): { groups?: { reason?: string; ticketIds?: string[] }[] } | null => {
+const parseModelJson = (raw: string): { groups?: { reason?: string; confidence?: string; ticketIds?: string[] }[] } | null => {
   let text = (raw || '').trim();
   // Strip markdown fences if the model added them despite instructions.
   text = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
@@ -81,7 +83,7 @@ export const detectDuplicates = async (
   organizationId: string,
   collectionId?: string | null,
 ): Promise<{ groups: DuplicateGroup[]; checkedAt: string; analyzedCount: number }> => {
-  const key = `${organizationId}:${collectionId || 'all'}`;
+  const key = `v2:${organizationId}:${collectionId || 'all'}`;
 
   const cached = cache.get(key);
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
@@ -110,18 +112,26 @@ export const detectDuplicates = async (
   const compact = tickets.map((t) => ({
     id: t.id,
     title: String(t.title || '').slice(0, 160),
-    description: String(t.description || '').slice(0, 280),
+    description: String(t.description || '').slice(0, 350),
   }));
 
-  const prompt = `You are a deduplication analyst for a bug/issue tracker. Find tickets that report the SAME underlying issue, even when the wording, phrasing or language differs.
+  const prompt = `You are a senior QA triage engineer deduplicating a bug/issue tracker.
 
-Rules:
-- Be conservative: only group tickets you are confident describe the same problem (same feature/symptom/error). When unsure, do NOT group.
-- A group needs at least 2 tickets. A ticket can appear in at most one group.
-- "reason" must be one short sentence explaining why they match.
-- Respond with STRICT JSON ONLY — no prose, no markdown fences:
-{"groups":[{"reason":"...","ticketIds":["<id>","<id>"]}]}
-- If there are no duplicates: {"groups":[]}
+Two tickets are DUPLICATES when they report the same underlying problem or request about the same feature/component — even if one is terse and the other detailed, the wording differs completely, or they are written in different languages. Titles are often vague (e.g. "AI" vs "Feature: AI Assistant" — both about the AI assistant); rely on titles AND descriptions together.
+
+Method — for EACH ticket, first infer:
+(a) the feature/component involved (e.g. "AI assistant", "login", "billing export")
+(b) the symptom or request (e.g. "answers are too generic", "crashes on submit")
+Then group tickets whose component AND symptom clearly overlap.
+
+Confidence:
+- "high" — clearly the same issue.
+- "medium" — likely the same issue / heavily overlapping reports that a human should review side by side. INCLUDE these too; the UI labels them as potential duplicates.
+Never group tickets about clearly different features. A group needs at least 2 tickets; a ticket appears in at most one group. "reason" is one short sentence naming the shared component + symptom.
+
+Respond with STRICT JSON only (no prose, no markdown fences):
+{"groups":[{"reason":"...","confidence":"high","ticketIds":["<id>","<id>"]}]}
+If there are no duplicates: {"groups":[]}
 
 TICKETS:
 ${JSON.stringify(compact)}`;
@@ -129,7 +139,8 @@ ${JSON.stringify(compact)}`;
   const result = await chatCompletion(
     [{ role: 'user', content: prompt }],
     undefined,
-    700,
+    800,
+    true, // JSON mode
   );
 
   const parsed = parseModelJson(result.content || '');
@@ -151,6 +162,7 @@ ${JSON.stringify(compact)}`;
       if (refs.length >= 2) {
         groups.push({
           reason: String(g.reason || 'These tickets appear to describe the same issue.').slice(0, 300),
+          confidence: g.confidence === 'medium' ? 'medium' : 'high',
           tickets: refs,
         });
       }
@@ -164,6 +176,6 @@ ${JSON.stringify(compact)}`;
 /** Drop the cache for an org (e.g. could be called after bulk changes). */
 export const invalidateDuplicateCache = (organizationId: string) => {
   for (const key of cache.keys()) {
-    if (key.startsWith(`${organizationId}:`)) cache.delete(key);
+    if (key.includes(`:${organizationId}:`)) cache.delete(key);
   }
 };

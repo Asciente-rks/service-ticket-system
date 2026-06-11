@@ -439,6 +439,7 @@ const findDuplicateTickets = async (ctx: ToolContext, args: any) => {
       groups: groups.map((g, i) => ({
         group: i + 1,
         reason: g.reason,
+        confidence: g.confidence || 'high',
         tickets: g.tickets.map((t) => ({ id: t.id, title: t.title, status: t.status, priority: t.priority })),
       })),
       note:

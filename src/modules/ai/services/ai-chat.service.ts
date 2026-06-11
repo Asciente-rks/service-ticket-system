@@ -88,6 +88,7 @@ export interface SendMessageResult {
 const toConversationDto = (c: AiConversation) => ({
   id: c.id,
   title: c.title,
+  collectionId: c.collectionId ?? null,
   lastMessageAt: c.lastMessageAt,
   lastMessagePreview: c.lastMessagePreview,
   createdAt: c.createdAt,
@@ -120,9 +121,18 @@ const toMessageDto = (m: AiMessage) => {
 
 export const isConfigured = aiConfigured;
 
-export const listConversations = async (organizationId: string, userId: string) => {
+/**
+ * List the caller's AI chats for one collection (project space) — or the
+ * org-wide chats (collection_id IS NULL) when no collection is given. Chats
+ * never leak between collections.
+ */
+export const listConversations = async (
+  organizationId: string,
+  userId: string,
+  collectionId?: string | null,
+) => {
   const conversations = await AiConversation.findAll({
-    where: { organizationId, userId },
+    where: { organizationId, userId, collectionId: collectionId || null },
     order: [
       ['lastMessageAt', 'DESC'],
       ['createdAt', 'DESC'],
@@ -136,10 +146,21 @@ export const createConversation = async (
   organizationId: string,
   userId: string,
   title?: string,
+  collectionId?: string | null,
 ) => {
+  // Tag the chat with its collection (validated against the org). Invalid or
+  // foreign ids fall back to an org-wide chat rather than failing the request.
+  let resolvedCollectionId: string | null = null;
+  if (collectionId) {
+    const collection = await Collection.findByPk(collectionId);
+    if (collection && String(collection.organizationId) === String(organizationId)) {
+      resolvedCollectionId = collection.id;
+    }
+  }
   const conversation = await AiConversation.create({
     organizationId,
     userId,
+    collectionId: resolvedCollectionId,
     title: (title || 'New chat').slice(0, 255),
   });
   return toConversationDto(conversation);

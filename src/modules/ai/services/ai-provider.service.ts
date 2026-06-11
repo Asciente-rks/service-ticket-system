@@ -137,6 +137,7 @@ const callProvider = async (
   messages: ChatMessage[],
   tools?: ToolDefinition[],
   maxTokens = 1024,
+  jsonMode = false,
 ): Promise<ChatCompletionResult> => {
   const apiKey = apiKeyFor(candidate.provider);
   if (!apiKey) {
@@ -156,6 +157,11 @@ const callProvider = async (
   if (tools && tools.length > 0) {
     payload.tools = tools;
     payload.tool_choice = 'auto';
+  }
+  if (jsonMode) {
+    // Supported by Groq + Gemini OpenAI-compat models; candidates that reject
+    // it fail over to the next one in the chain.
+    payload.response_format = { type: 'json_object' };
   }
 
   const controller = new AbortController();
@@ -224,6 +230,7 @@ export const chatCompletion = async (
   messages: ChatMessage[],
   tools?: ToolDefinition[],
   maxTokens?: number,
+  jsonMode = false,
 ): Promise<ChatCompletionResult> => {
   const available = CANDIDATES.filter((c) => !!apiKeyFor(c.provider));
 
@@ -248,7 +255,7 @@ export const chatCompletion = async (
 
   for (const candidate of order) {
     try {
-      const result = await callProvider(candidate, messages, tools, maxTokens);
+      const result = await callProvider(candidate, messages, tools, maxTokens, jsonMode);
       cooldowns.delete(keyOf(candidate));
       return result;
     } catch (error: any) {

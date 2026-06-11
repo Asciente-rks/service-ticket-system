@@ -10,7 +10,11 @@ export const getStatus = async (req: AuthRequest, res: Response) => {
 export const listConversations = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-    const data = await aiChatService.listConversations(req.user.organizationId!, req.user.id);
+    const collectionId =
+      typeof req.query.collectionId === 'string' && req.query.collectionId.trim()
+        ? req.query.collectionId.trim()
+        : null;
+    const data = await aiChatService.listConversations(req.user.organizationId!, req.user.id, collectionId);
     res.status(200).json(data);
   } catch (error: any) {
     res.status(error.statusCode || 500).json({ message: error.message || 'Could not load AI conversations.' });
@@ -20,8 +24,8 @@ export const listConversations = async (req: AuthRequest, res: Response) => {
 export const createConversation = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-    const { title } = (req.body || {}) as { title?: string };
-    const data = await aiChatService.createConversation(req.user.organizationId!, req.user.id, title);
+    const { title, collectionId } = (req.body || {}) as { title?: string; collectionId?: string };
+    const data = await aiChatService.createConversation(req.user.organizationId!, req.user.id, title, collectionId || null);
     res.status(201).json(data);
   } catch (error: any) {
     res.status(error.statusCode || 500).json({ message: error.message || 'Could not create AI conversation.' });

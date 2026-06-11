@@ -1,3 +1,4 @@
+import { QueryTypes } from 'sequelize';
 import { sequelize } from '../../../config/db';
 
 /**
@@ -20,6 +21,7 @@ export const ensureAiTables = async (): Promise<void> => {
         id CHAR(36) NOT NULL PRIMARY KEY,
         organization_id CHAR(36) NOT NULL,
         user_id CHAR(36) NOT NULL,
+        collection_id CHAR(36) NULL,
         title VARCHAR(255) NOT NULL DEFAULT 'New chat',
         last_message_at DATETIME NULL,
         last_message_preview VARCHAR(300) NULL,
@@ -29,6 +31,15 @@ export const ensureAiTables = async (): Promise<void> => {
         INDEX idx_ai_conversations_org (organization_id)
       );
     `);
+    // Older deployments created the table without collection_id — add it.
+    const cols = await sequelize.query<{ c: number }>(
+      `SELECT COUNT(*) AS c FROM information_schema.columns
+       WHERE table_schema = DATABASE() AND table_name = 'ai_conversations' AND column_name = 'collection_id'`,
+      { type: QueryTypes.SELECT },
+    );
+    if (Number(cols[0].c) === 0) {
+      await sequelize.query(`ALTER TABLE ai_conversations ADD COLUMN collection_id CHAR(36) NULL;`);
+    }
     await sequelize.query(`
       CREATE TABLE IF NOT EXISTS ai_messages (
         id CHAR(36) NOT NULL PRIMARY KEY,

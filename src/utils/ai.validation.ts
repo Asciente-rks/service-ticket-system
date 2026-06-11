@@ -3,6 +3,13 @@ import * as yup from 'yup';
 export const createAiConversationSchema = yup.object({
   body: yup.object({
     title: yup.string().trim().max(255, 'Title is too long (max 255 characters)').optional(),
+    collectionId: yup.string().uuid('Invalid collection id').optional(),
+  }),
+});
+
+export const listAiConversationsQuerySchema = yup.object({
+  query: yup.object({
+    collectionId: yup.string().uuid('Invalid collection id').optional(),
   }),
 });
 
