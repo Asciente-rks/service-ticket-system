@@ -4,6 +4,7 @@ import {
   aiConfigured,
 } from './ai-provider.service';
 import { toolDefinitions, executeTool, ToolContext, TicketRef } from './ai-tools.service';
+import type { DuplicateGroup } from './ai-duplicates.service';
 import { AiConversation } from '../models/ai-conversation.model';
 import { AiMessage } from '../models/ai-message.model';
 import { Ticket } from '../../tickets/models/ticket.model';
@@ -33,15 +34,20 @@ You can call read-only tools for real data. Pick the tool that matches the SUBJE
 - get_ticket_details — ONE ticket in full: description, comments, activity, approvals.
 - query_comments — comments ACROSS ALL tickets (e.g. "did I leave comments anywhere?", "what did Ana say?", counting someone's comments). Returns a totalMatching count.
 - query_activity — actions across all tickets (status changes, assignments, approvals): "what happened this week", "what did I do today".
+- find_duplicate_tickets — AI duplicate detection across unresolved tickets (optionally per collection). Use whenever the user wants to review/verify duplicate tickets.
 - list_collections — the org's collections (systems/products) and ticket counts.
 - get_ticket_stats — org-wide totals by status/priority plus your assigned/reported counts.
 - list_team_members — members of the organization.
 
 Rules:
 - ALWAYS use tools for any question about tickets, comments, activity, workload, people or counts — never guess or invent data.
+- Use the FEWEST filters that answer the question. For "how many tickets are assigned to me" call query_tickets with ONLY assignedToMe=true — nothing else. The returned count and appliedFilters fields are authoritative; report exactly that count.
+- CURRENT assignee = the assignee field returned by query_tickets/get_ticket_details, nothing else. Activity events like "assigned"/"reassigned" are HISTORY (statuses auto-reassign: In Progress → the developer, Ready for QA → back to the reporter), so NEVER infer the current assignee from the timeline.
 - NEVER answer "none/zero/no" from memory: questions about comments require query_comments, about history require query_activity, about tickets require query_tickets. If one tool returns empty but another could plausibly hold the answer, try it before concluding.
+- Data changes between turns: when the user asks again or disputes a number, re-run the tool with minimal filters instead of repeating an earlier answer.
 - Chain tools freely. For summaries, opinions or next-step suggestions about a specific ticket, find it with query_tickets then ALWAYS call get_ticket_details — the description, comments and activity make your answer specific instead of generic.
 - For "recent" questions, rely on the date values returned by tools (already in Philippine time).
+- Duplicate review: after calling find_duplicate_tickets, briefly present each group (reason + ticket links). The app renders Open/Delete/Keep controls under your reply — tell the user to confirm with those controls or keep everything for now. You cannot delete tickets yourself.
 
 ## Ticket links
 When you mention a specific ticket, reference it inline using EXACTLY this format: [ticket:TICKET_ID|TICKET_TITLE] — for example [ticket:123e4567-e89b-12d3-a456-426614174000|Login button broken]. The app renders these as clickable buttons that open the ticket. Use one for every ticket you mention; never put them inside markdown links or code blocks.
@@ -218,9 +224,10 @@ const extractInlineRefs = (text: string): TicketRef[] => {
 const runAgentLoop = async (
   ctx: ToolContext,
   history: ChatMessage[],
-): Promise<{ content: string; ticketRefs: TicketRef[]; provider: string; model: string }> => {
+): Promise<{ content: string; ticketRefs: TicketRef[]; duplicateGroups: DuplicateGroup[] | null; provider: string; model: string }> => {
   const messages: ChatMessage[] = [{ role: 'system', content: buildSystemPrompt() }, ...history];
   const collectedRefs: Map<string, TicketRef> = new Map();
+  let duplicateGroups: DuplicateGroup[] | null = null;
   let provider = '';
   let model = '';
 
@@ -243,7 +250,7 @@ const runAgentLoop = async (
         inlineRefs.length > 0
           ? inlineRefs.map((r) => collectedRefs.get(r.id) || r)
           : Array.from(collectedRefs.values()).slice(0, 20);
-      return { content, ticketRefs: refs, provider, model };
+      return { content, ticketRefs: refs, duplicateGroups, provider, model };
     }
 
     // Record the assistant turn containing tool calls.
@@ -261,7 +268,11 @@ const runAgentLoop = async (
       } catch {
         args = {};
       }
-      const { result: toolResult, ticketRefs } = await executeTool(ctx, call.function.name, args);
+      const execution = await executeTool(ctx, call.function.name, args);
+      const { result: toolResult, ticketRefs } = execution;
+      if (execution.duplicateGroups && execution.duplicateGroups.length > 0) {
+        duplicateGroups = execution.duplicateGroups;
+      }
       for (const ref of ticketRefs) collectedRefs.set(ref.id, ref);
       messages.push({
         role: 'tool',
@@ -275,6 +286,7 @@ const runAgentLoop = async (
   return {
     content: 'I gathered the data but ran out of reasoning steps. Please try a more specific question.',
     ticketRefs: Array.from(collectedRefs.values()).slice(0, 20),
+    duplicateGroups,
     provider,
     model,
   };
@@ -309,7 +321,13 @@ export const sendMessage = async (
 
   const ctx: ToolContext = { organizationId, userId };
 
-  let reply: { content: string; ticketRefs: TicketRef[]; provider: string; model: string };
+  let reply: {
+    content: string;
+    ticketRefs: TicketRef[];
+    duplicateGroups: DuplicateGroup[] | null;
+    provider: string;
+    model: string;
+  };
   try {
     reply = await runAgentLoop(ctx, history);
   } catch (error: any) {
@@ -341,7 +359,13 @@ export const sendMessage = async (
     role: 'assistant',
     body: reply.content,
     ticketRefs: reply.ticketRefs.length ? JSON.stringify(reply.ticketRefs) : null,
-    meta: JSON.stringify({ provider: reply.provider, model: reply.model }),
+    meta: JSON.stringify({
+      provider: reply.provider,
+      model: reply.model,
+      ...(reply.duplicateGroups && reply.duplicateGroups.length > 0
+        ? { duplicateGroups: reply.duplicateGroups }
+        : {}),
+    }),
   });
 
   // Auto-title brand-new chats from the first user message.

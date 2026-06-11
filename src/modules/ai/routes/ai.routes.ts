@@ -8,6 +8,7 @@ import {
   renameConversation,
   deleteConversation,
   askAboutTicket,
+  getDuplicates,
 } from '../controllers/ai.controller';
 import { authenticateToken, requireOrganization } from '../../../middlewares/auth.middleware';
 import { validate } from '../../../middlewares/validator.middleware';
@@ -20,6 +21,7 @@ import {
   sendAiMessageSchema,
   renameAiConversationSchema,
   askTicketAiSchema,
+  aiDuplicatesQuerySchema,
 } from '../../../utils/ai.validation';
 
 export const aiRouter = Router();
@@ -46,6 +48,9 @@ const aiGenerationLimiter = rateLimit({
 });
 
 aiRouter.get('/status', getStatus);
+
+// AI duplicate-ticket detection (cached server-side; powers the dashboard banner).
+aiRouter.get('/duplicates', aiGenerationLimiter, validate(aiDuplicatesQuerySchema), getDuplicates);
 
 aiRouter.get('/conversations', listConversations);
 aiRouter.post('/conversations', validate(createAiConversationSchema), createConversation);

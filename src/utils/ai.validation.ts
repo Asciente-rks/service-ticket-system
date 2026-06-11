@@ -56,3 +56,9 @@ export const askTicketAiSchema = yup.object({
     ticketId: yup.string().uuid('Invalid ticket id').required('Ticket id is required'),
   }),
 });
+
+export const aiDuplicatesQuerySchema = yup.object({
+  query: yup.object({
+    collectionId: yup.string().uuid('Invalid collection id').optional(),
+  }),
+});

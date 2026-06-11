@@ -8,6 +8,14 @@ import { Approval } from '../../tickets/models/approval.model';
 import { Collection } from '../../collections/models/collection.model';
 import { ToolDefinition } from './ai-provider.service';
 import { formatPhDateTime } from './ph-time.util';
+import { detectDuplicates, DuplicateGroup } from './ai-duplicates.service';
+
+/**
+ * Models sometimes pass booleans as strings ("true"/"false") — a naive
+ * truthiness check turns "false" into an active filter and silently wrecks
+ * counts. Only an explicit true counts as true.
+ */
+const asBool = (v: any): boolean => v === true || v === 'true' || v === 1;
 
 /**
  * Function-calling tools the AI assistant can use. Every query is scoped to
@@ -60,17 +68,17 @@ export const toolDefinitions: ToolDefinition[] = [
     function: {
       name: 'query_tickets',
       description:
-        "Search and list tickets in the user's organization. Use for questions like 'how many tickets are assigned to me', 'show open high priority tickets', 'tickets reported by me', 'find tickets about login'. Returns matching tickets with id, title, status, priority, reporter, assignee.",
+        "Search and list tickets in the user's organization. Use for questions like 'how many tickets are assigned to me', 'show open high priority tickets', 'tickets reported by me', 'find tickets about login'. Returns matching tickets — the 'assignee' field is always the CURRENT assignee. IMPORTANT: use the FEWEST filters that answer the question; for 'how many are assigned to me' pass ONLY assignedToMe=true. Never combine assignedToMe and reportedByMe unless the user explicitly asks for tickets that are both.",
       parameters: {
         type: 'object',
         properties: {
           assignedToMe: {
             type: 'boolean',
-            description: 'Only tickets assigned to the current user.',
+            description: 'Only tickets whose CURRENT assignee is the current user. Omit entirely when not needed (never pass false).',
           },
           reportedByMe: {
             type: 'boolean',
-            description: 'Only tickets reported/created by the current user.',
+            description: 'Only tickets reported/created by the current user. Omit entirely when not needed (never pass false).',
           },
           status: {
             type: 'string',
@@ -145,6 +153,23 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     type: 'function',
     function: {
+      name: 'find_duplicate_tickets',
+      description:
+        'Run AI duplicate detection over unresolved tickets — finds tickets reporting the SAME underlying issue even when worded differently. Use when the user asks to review/verify duplicate tickets. Optionally scoped to one collection by name. The app renders interactive review controls (open/delete/keep) under your reply automatically.',
+      parameters: {
+        type: 'object',
+        properties: {
+          collection: {
+            type: 'string',
+            description: 'Collection (system/product) name to scan, e.g. "Mobile App". Omit to scan all collections.',
+          },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'list_collections',
       description:
         "List the organization's collections (the systems/products tickets are grouped into) with ticket counts. Use when the user asks about collections, systems, projects, or where tickets live.",
@@ -188,19 +213,21 @@ export const toolDefinitions: ToolDefinition[] = [
 
 const queryTickets = async (ctx: ToolContext, args: any) => {
   const where: any = { organizationId: ctx.organizationId };
+  const appliedFilters: string[] = [];
 
-  if (args?.assignedToMe) where.assignedTo = ctx.userId;
-  if (args?.reportedByMe) where.reportedBy = ctx.userId;
+  if (asBool(args?.assignedToMe)) { where.assignedTo = ctx.userId; appliedFilters.push('assignedToMe'); }
+  if (asBool(args?.reportedByMe)) { where.reportedBy = ctx.userId; appliedFilters.push('reportedByMe'); }
 
   if (args?.priority && typeof args.priority === 'string') {
     const p = args.priority.trim().toLowerCase();
     const valid: Record<string, string> = { low: 'Low', medium: 'Medium', high: 'High' };
-    if (valid[p]) where.priority = valid[p];
+    if (valid[p]) { where.priority = valid[p]; appliedFilters.push(`priority=${valid[p]}`); }
   }
 
   if (args?.search && typeof args.search === 'string' && args.search.trim()) {
     const q = `%${args.search.trim()}%`;
     where[Op.or as any] = [{ title: { [Op.like]: q } }, { description: { [Op.like]: q } }];
+    appliedFilters.push(`search="${args.search.trim()}"`);
   }
 
   let statusFilterFailed: string | null = null;
@@ -208,7 +235,7 @@ const queryTickets = async (ctx: ToolContext, args: any) => {
     const status = await TicketStatus.findOne({
       where: { name: { [Op.like]: args.status.trim() } },
     });
-    if (status) where.statusId = status.id;
+    if (status) { where.statusId = status.id; appliedFilters.push(`status=${status.name}`); }
     else statusFilterFailed = args.status;
   }
 
@@ -217,7 +244,7 @@ const queryTickets = async (ctx: ToolContext, args: any) => {
     const collection = await Collection.findOne({
       where: { organizationId: ctx.organizationId, name: { [Op.like]: `%${args.collection.trim()}%` } },
     });
-    if (collection) where.collectionId = collection.id;
+    if (collection) { where.collectionId = collection.id; appliedFilters.push(`collection=${collection.name}`); }
     else collectionFilterFailed = args.collection;
   }
 
@@ -241,6 +268,7 @@ const queryTickets = async (ctx: ToolContext, args: any) => {
   return {
     result: {
       count: tickets.length,
+      appliedFilters: appliedFilters.length ? appliedFilters : ['none — all org tickets'],
       note: notes.length ? notes.join(' ') : undefined,
       tickets: tickets.map(toSummary),
     },
@@ -250,7 +278,7 @@ const queryTickets = async (ctx: ToolContext, args: any) => {
 
 const queryComments = async (ctx: ToolContext, args: any) => {
   const where: any = {};
-  if (args?.authoredByMe) where.authorId = ctx.userId;
+  if (asBool(args?.authoredByMe)) where.authorId = ctx.userId;
 
   if (args?.authorName && typeof args.authorName === 'string' && args.authorName.trim()) {
     const users = await User.findAll({
@@ -260,7 +288,7 @@ const queryComments = async (ctx: ToolContext, args: any) => {
     if (users.length === 0) {
       return { result: { totalMatching: 0, comments: [], note: `No member named "${args.authorName}" found.` }, ticketRefs: [] };
     }
-    where.authorId = args?.authoredByMe ? ctx.userId : { [Op.in]: users.map((u: any) => u.id) };
+    where.authorId = asBool(args?.authoredByMe) ? ctx.userId : { [Op.in]: users.map((u: any) => u.id) };
   }
 
   if (args?.ticketId && typeof args.ticketId === 'string' && args.ticketId.trim()) {
@@ -315,7 +343,7 @@ const queryComments = async (ctx: ToolContext, args: any) => {
 
 const queryActivity = async (ctx: ToolContext, args: any) => {
   const where: any = {};
-  if (args?.byMe) where.actorId = ctx.userId;
+  if (asBool(args?.byMe)) where.actorId = ctx.userId;
 
   if (args?.actorName && typeof args.actorName === 'string' && args.actorName.trim()) {
     const users = await User.findAll({
@@ -325,7 +353,7 @@ const queryActivity = async (ctx: ToolContext, args: any) => {
     if (users.length === 0) {
       return { result: { totalMatching: 0, events: [], note: `No member named "${args.actorName}" found.` }, ticketRefs: [] };
     }
-    where.actorId = args?.byMe ? ctx.userId : { [Op.in]: users.map((u: any) => u.id) };
+    where.actorId = asBool(args?.byMe) ? ctx.userId : { [Op.in]: users.map((u: any) => u.id) };
   }
 
   if (args?.type && typeof args.type === 'string' && args.type.trim()) {
@@ -375,6 +403,49 @@ const queryActivity = async (ctx: ToolContext, args: any) => {
       })),
     },
     ticketRefs: Array.from(refMap.values()),
+  };
+};
+
+const findDuplicateTickets = async (ctx: ToolContext, args: any) => {
+  let collectionId: string | null = null;
+  let collectionName: string | null = null;
+
+  if (args?.collection && typeof args.collection === 'string' && args.collection.trim()) {
+    const collection = await Collection.findOne({
+      where: { organizationId: ctx.organizationId, name: { [Op.like]: `%${args.collection.trim()}%` } },
+    });
+    if (!collection) {
+      return {
+        result: { error: `Collection "${args.collection}" not found. Use list_collections to see available collections.` },
+        ticketRefs: [],
+      };
+    }
+    collectionId = collection.id;
+    collectionName = collection.name;
+  }
+
+  const { groups, analyzedCount } = await detectDuplicates(ctx.organizationId, collectionId);
+
+  const refs: TicketRef[] = [];
+  for (const g of groups) for (const t of g.tickets) refs.push(t);
+
+  return {
+    result: {
+      scope: collectionName ? `collection "${collectionName}"` : 'all collections',
+      analyzedTickets: analyzedCount,
+      duplicateGroupCount: groups.length,
+      groups: groups.map((g, i) => ({
+        group: i + 1,
+        reason: g.reason,
+        tickets: g.tickets.map((t) => ({ id: t.id, title: t.title, status: t.status, priority: t.priority })),
+      })),
+      note:
+        groups.length > 0
+          ? 'The app shows interactive review controls (Open / Delete / Keep) under your reply — invite the user to use them. You cannot delete tickets yourself.'
+          : 'No likely duplicates found.',
+    },
+    ticketRefs: refs,
+    duplicateGroups: groups,
   };
 };
 
@@ -503,11 +574,17 @@ const listTeamMembers = async (ctx: ToolContext) => {
   };
 };
 
+export interface ToolExecution {
+  result: any;
+  ticketRefs: TicketRef[];
+  duplicateGroups?: DuplicateGroup[];
+}
+
 export const executeTool = async (
   ctx: ToolContext,
   name: string,
   args: any,
-): Promise<{ result: any; ticketRefs: TicketRef[] }> => {
+): Promise<ToolExecution> => {
   try {
     switch (name) {
       case 'query_tickets':
@@ -518,6 +595,8 @@ export const executeTool = async (
         return await queryComments(ctx, args);
       case 'query_activity':
         return await queryActivity(ctx, args);
+      case 'find_duplicate_tickets':
+        return await findDuplicateTickets(ctx, args);
       case 'list_collections':
         return await listCollectionsTool(ctx);
       case 'get_ticket_stats':

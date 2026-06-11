@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../../../middlewares/auth.middleware';
 import * as aiChatService from '../services/ai-chat.service';
+import { detectDuplicates } from '../services/ai-duplicates.service';
 
 export const getStatus = async (req: AuthRequest, res: Response) => {
   res.status(200).json({ configured: aiChatService.isConfigured() });
@@ -66,6 +67,25 @@ export const deleteConversation = async (req: AuthRequest, res: Response) => {
     res.status(204).send();
   } catch (error: any) {
     res.status(error.statusCode || 500).json({ message: error.message || 'Could not delete conversation.' });
+  }
+};
+
+export const getDuplicates = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+    const collectionId =
+      typeof req.query.collectionId === 'string' && req.query.collectionId.trim()
+        ? req.query.collectionId.trim()
+        : null;
+    const data = await detectDuplicates(req.user.organizationId!, collectionId);
+    res.status(200).json(data);
+  } catch (error: any) {
+    // Duplicate detection is best-effort decoration on the dashboard — when
+    // providers are rate-limited just report "no duplicates" instead of an error.
+    if (error?.statusCode === 429 || error?.statusCode === 503) {
+      return res.status(200).json({ groups: [], checkedAt: null, degraded: true });
+    }
+    res.status(error.statusCode || 500).json({ message: error.message || 'Could not check duplicates.' });
   }
 };
 
