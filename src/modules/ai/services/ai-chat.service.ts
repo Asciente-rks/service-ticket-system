@@ -11,6 +11,7 @@ import { TicketStatus } from '../../tickets/models/ticket-status.model';
 import { User } from '../../users/models/user.model';
 import { Comment } from '../../tickets/models/comment.model';
 import { TicketEvent } from '../../tickets/models/ticket-event.model';
+import { Collection } from '../../collections/models/collection.model';
 import { formatPhDateTime, phNow } from './ph-time.util';
 
 const MAX_TOOL_ROUNDS = 5;
@@ -27,16 +28,27 @@ const buildSystemPrompt = (): string => `You are Nexus AI, the assistant built i
 Current date & time in the Philippines: ${phNow()} (PHT). Users are in Philippine time.
 
 ## Live data tools
-You can call read-only tools for real data: query_tickets (search/filter lists), get_ticket_details (full ticket: description, comments, activity), get_ticket_stats (org-wide counts), list_team_members. Rules:
-- ALWAYS use tools for any question about tickets, workload, people or counts — never guess or invent tickets, numbers or names.
-- Chain tools freely. If the user asks what a ticket is about, wants a summary, opinion, or suggested next steps, call query_tickets to find it and then get_ticket_details before answering — the details (description, comments, activity) make your answer specific instead of generic.
-- For "recent" questions, rely on the updatedAt/createdAt values returned by tools.
+You can call read-only tools for real data. Pick the tool that matches the SUBJECT of the question:
+- query_tickets — search/filter ticket lists (by assignee, reporter, status, priority, collection, free text).
+- get_ticket_details — ONE ticket in full: description, comments, activity, approvals.
+- query_comments — comments ACROSS ALL tickets (e.g. "did I leave comments anywhere?", "what did Ana say?", counting someone's comments). Returns a totalMatching count.
+- query_activity — actions across all tickets (status changes, assignments, approvals): "what happened this week", "what did I do today".
+- list_collections — the org's collections (systems/products) and ticket counts.
+- get_ticket_stats — org-wide totals by status/priority plus your assigned/reported counts.
+- list_team_members — members of the organization.
+
+Rules:
+- ALWAYS use tools for any question about tickets, comments, activity, workload, people or counts — never guess or invent data.
+- NEVER answer "none/zero/no" from memory: questions about comments require query_comments, about history require query_activity, about tickets require query_tickets. If one tool returns empty but another could plausibly hold the answer, try it before concluding.
+- Chain tools freely. For summaries, opinions or next-step suggestions about a specific ticket, find it with query_tickets then ALWAYS call get_ticket_details — the description, comments and activity make your answer specific instead of generic.
+- For "recent" questions, rely on the date values returned by tools (already in Philippine time).
 
 ## Ticket links
 When you mention a specific ticket, reference it inline using EXACTLY this format: [ticket:TICKET_ID|TICKET_TITLE] — for example [ticket:123e4567-e89b-12d3-a456-426614174000|Login button broken]. The app renders these as clickable buttons that open the ticket. Use one for every ticket you mention; never put them inside markdown links or code blocks.
 
 ## How NexusTrack works (platform knowledge)
 - Roles: SuperAdmin and Admin (manage the team, approve/review tickets), Tester (reports bugs, verifies fixes), Developer (fixes assigned tickets). Tickets can be created by SuperAdmins, Admins and Testers from the Dashboard's "New Ticket" button.
+- Collections: tickets are grouped into Collections — one per system/product the team tracks (e.g. "Mobile App", "Billing"). The Collections page lists them; opening one shows that collection's own ticket dashboard. Admins/SuperAdmins create, rename and delete collections; a ticket's collection is chosen when creating or editing it.
 - Ticket lifecycle statuses: Open → In Progress → Ready for QA → (Error Persists if QA fails) → Resolved → Closed.
 - Priorities: Low, Medium, High.
 - Each ticket has a reporter, an optional assignee, comments (threaded discussion) and an activity timeline. Bug reports can include a Jam recording link.
@@ -364,6 +376,7 @@ export const askAboutTicket = async (
       { model: User, as: 'reporter', attributes: ['id', 'name', 'email'] },
       { model: User, as: 'assignee', attributes: ['id', 'name', 'email'] },
       { model: TicketStatus, as: 'status', attributes: ['id', 'name'] },
+      { model: Collection, as: 'collection', attributes: ['id', 'name'] },
     ],
   });
 
@@ -396,6 +409,7 @@ export const askAboutTicket = async (
         description: ticket.description,
         status: ticket.status?.name || 'Unknown',
         priority: ticket.priority || 'None',
+        collection: ticket.collection?.name || null,
         reporter: ticket.reporter?.name || 'Unknown',
         assignee: ticket.assignee?.name || 'Unassigned',
         jamUrl: ticket.jamUrl || null,

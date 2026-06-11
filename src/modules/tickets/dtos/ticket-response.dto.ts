@@ -6,6 +6,8 @@ interface TicketUser {
 
 export interface TicketResponseDto {
   id: string;
+  collectionId: string | null;
+  collectionName: string | null;
   title: string;
   description: string;
   jamUrl: string | null;

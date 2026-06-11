@@ -4,6 +4,7 @@ import { sequelize } from '../../../config/db';
 export interface TicketsAttributes {
     id: string;
     organizationId: string;
+    collectionId: string | null;
     title: string;
     description: string;
     jamUrl: string | null;
@@ -15,11 +16,12 @@ export interface TicketsAttributes {
     updatedAt?: Date;
 }
 
-export interface TicketsCreationAttributes extends Optional<TicketsAttributes, 'id' | 'createdAt' | 'updatedAt'> {}
+export interface TicketsCreationAttributes extends Optional<TicketsAttributes, 'id' | 'collectionId' | 'createdAt' | 'updatedAt'> {}
 
 export class Ticket extends Model<TicketsAttributes, TicketsCreationAttributes> implements TicketsAttributes {
     declare id: string;
     declare organizationId: string;
+    declare collectionId: string | null;
     declare title: string;
     declare description: string;
     declare jamUrl: string | null;
@@ -47,6 +49,14 @@ Ticket.init(
           model: 'organizations',
           key: 'id',
         },
+      },
+      collectionId: {
+        // Which collection (system/product) this ticket belongs to. Nullable
+        // for legacy rows; orphans are adopted into the org's default
+        // collection by the collections service.
+        type: DataTypes.UUID,
+        allowNull: true,
+        field: 'collection_id',
       },
       title: {
         // TEXT (not STRING) so titles have no practical length cap.

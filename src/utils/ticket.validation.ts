@@ -17,6 +17,7 @@ export const createTicketSchema = yup.object({
         description: yup.string().trim().required('Description is required'),
         priority: yup.string().oneOf(['Low', 'Medium', 'High'], 'Priority must be one of: Low, Medium, or High').optional(),
         assigneeId: yup.string().uuid('Assignee ID must be a valid UUID').optional(),
+        collectionId: yup.string().uuid('Collection ID must be a valid UUID').optional(),
         jamUrl: jamUrlSchema,
     }),
 });
@@ -28,11 +29,12 @@ export const updateTicketSchema = yup.object({
         statusId: yup.string(),
         priority: yup.string().oneOf(['Low', 'Medium', 'High'], 'Priority must be one of: Low, Medium, or High'),
         assigneeId: yup.string().uuid('Assignee ID must be a valid UUID').nullable(),
+        collectionId: yup.string().uuid('Collection ID must be a valid UUID'),
         jamUrl: jamUrlSchema,
     }).test(
         'at-least-one-field',
-        'At least one field (title, description, statusId, priority, assigneeId, jamUrl) must be provided for an update.',
-        (value) => value.title !== undefined || value.description !== undefined || value.statusId !== undefined || value.priority !== undefined || value.assigneeId !== undefined || value.jamUrl !== undefined
+        'At least one field (title, description, statusId, priority, assigneeId, collectionId, jamUrl) must be provided for an update.',
+        (value) => value.title !== undefined || value.description !== undefined || value.statusId !== undefined || value.priority !== undefined || value.assigneeId !== undefined || (value as any).collectionId !== undefined || value.jamUrl !== undefined
     ),
     params: yup.object({
         id: yup.string().uuid('Invalid ticket ID format.').required('Ticket ID is required'),

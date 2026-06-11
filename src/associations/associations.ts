@@ -9,6 +9,7 @@ import { Conversation } from '../modules/conversations/models/conversation.model
 import { Message } from '../modules/conversations/models/message.model';
 import { AiConversation } from '../modules/ai/models/ai-conversation.model';
 import { AiMessage } from '../modules/ai/models/ai-message.model';
+import { Collection } from '../modules/collections/models/collection.model';
 import { Notification } from '../modules/notifications/models/notification.model';
 import { NotificationSettings } from '../modules/users/models/notification-settings.model';
 import { Organization } from '../modules/organizations/models/organization.model';
@@ -31,6 +32,12 @@ export const defineAssociations = () => {
 
     Organization.hasMany(Ticket, { foreignKey: 'organizationId', as: 'tickets' });
     Ticket.belongsTo(Organization, { foreignKey: 'organizationId', as: 'organization' });
+
+    // Collections group tickets per system/product within an organization.
+    Organization.hasMany(Collection, { foreignKey: 'organizationId', as: 'collections' });
+    Collection.belongsTo(Organization, { foreignKey: 'organizationId', as: 'organization' });
+    Collection.hasMany(Ticket, { foreignKey: 'collectionId', as: 'tickets' });
+    Ticket.belongsTo(Collection, { foreignKey: 'collectionId', as: 'collection' });
 
     Organization.hasMany(Notification, { foreignKey: 'organizationId', as: 'notifications' });
     Notification.belongsTo(Organization, { foreignKey: 'organizationId', as: 'organization' });

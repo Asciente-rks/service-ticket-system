@@ -12,6 +12,7 @@ import * as commentRepository from '../repositories/comment.repository';
 import * as ticketEventRepository from '../repositories/ticket-event.repository';
 import { ROLES } from '../../../config/roles';
 import { STATUSES } from '../../../config/statuses';
+import * as collectionService from '../../collections/services/collection.service';
 
 const VALID_PRIORITIES = ['Low', 'Medium', 'High'];
 
@@ -65,8 +66,20 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
         }
     }
 
+    // Every ticket lives in a collection: validate the requested one belongs
+    // to this org, or fall back to the org's default collection.
+    let collectionId: string;
+    if (ticketData.collectionId) {
+        const collection = await collectionService.assertCollectionInOrg(organizationId, ticketData.collectionId);
+        collectionId = collection.id;
+    } else {
+        const collection = await collectionService.getDefaultCollection(organizationId, reporterId);
+        collectionId = collection.id;
+    }
+
     const ticket = await ticketRepository.create({
         organizationId,
+        collectionId,
         title: ticketData.title,
         description: ticketData.description,
         jamUrl: ticketData.jamUrl ?? null,
@@ -107,8 +120,9 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
     return createdTicket;
 }
 
-export const getAllTickets = async (userId: string, roleId: string, organizationId: string): Promise<TicketResponseDto[]> => {
-    const whereClause = { organizationId };
+export const getAllTickets = async (userId: string, roleId: string, organizationId: string, collectionId?: string): Promise<TicketResponseDto[]> => {
+    const whereClause: any = { organizationId };
+    if (collectionId) whereClause.collectionId = collectionId;
 
     const tickets = await ticketRepository.findAll(whereClause);
 
@@ -162,7 +176,16 @@ export const updateTicket = async (id: string, updates: UpdateTicketDto, userId:
     if (updates.priority && !VALID_PRIORITIES.includes(updates.priority)) {
         throw new Error(`Invalid priority. Allowed values: ${VALID_PRIORITIES.join(', ')}`);
     }
- 
+
+    // Moving a ticket between collections: target must belong to this org.
+    if (updates.collectionId !== undefined) {
+        if (updates.collectionId) {
+            await collectionService.assertCollectionInOrg(organizationId, updates.collectionId);
+        } else {
+            delete (updates as any).collectionId; // never detach a ticket from all collections
+        }
+    }
+
     const updatesAny = updates as any;
     if (updatesAny.status) {
         const statusEntity = await ticketStatusRepository.findByName(updatesAny.status);
@@ -313,6 +336,8 @@ const toTicketResponseDto = (ticket: any): TicketResponseDto => {
 
     return {
         id: ticket.id,
+        collectionId: ticket.collectionId ?? ticket.collection?.id ?? null,
+        collectionName: ticket.collection?.name ?? null,
         title: ticket.title,
         description: ticket.description,
         jamUrl: ticket.jamUrl ?? null,

@@ -250,7 +250,39 @@ const run = async () => {
     console.log('Table ai_messages already exists — skipping.');
   }
 
-  // 15) Purge orphaned notifications — rows pointing at tickets that were
+  // 15) collections — group tickets per system/product within an organization
+  if (!(await tableExists('collections'))) {
+    console.log('Creating table: collections');
+    await sequelize.query(`
+      CREATE TABLE collections (
+        id CHAR(36) NOT NULL PRIMARY KEY,
+        organization_id CHAR(36) NOT NULL,
+        name VARCHAR(120) NOT NULL,
+        description TEXT NULL,
+        created_by CHAR(36) NULL,
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL,
+        INDEX idx_collections_org (organization_id)
+      );
+    `);
+  } else {
+    console.log('Table collections already exists — skipping.');
+  }
+
+  // 16) tickets.collection_id — which collection a ticket belongs to
+  if (!(await columnExists('tickets', 'collection_id'))) {
+    console.log('Adding column: tickets.collection_id');
+    await sequelize.query(`ALTER TABLE tickets ADD COLUMN collection_id CHAR(36) NULL;`);
+    try {
+      await sequelize.query(`CREATE INDEX idx_tickets_collection ON tickets (collection_id);`);
+    } catch (err: any) {
+      console.warn('Could not create idx_tickets_collection (may already exist):', err.message);
+    }
+  } else {
+    console.log('Column tickets.collection_id already exists — skipping.');
+  }
+
+  // 17) Purge orphaned notifications — rows pointing at tickets that were
   //     deleted before cascade cleanup existed. Safe one-time data fix.
   console.log('Purging orphaned notifications (linked ticket no longer exists)');
   try {
