@@ -45,14 +45,28 @@ interface ProviderCandidate {
 }
 
 /**
- * Candidate chain, fastest/latest first. Groq's LPU inference is the quickest,
- * so it leads; Gemini Flash models follow as the cross-provider fallback.
- * All listed models support tool/function calling on the free tier.
+ * Candidate chain ordered MOST POWERFUL first (per the account's actual free
+ * tier limits), falling through to smaller/faster models as per-minute or
+ * per-day limits are hit. Groq leads (fastest inference + biggest daily
+ * quotas), Gemini follows as the cross-provider fallback. All listed models
+ * support tool/function calling.
+ *
+ * Groq free-tier (RPM/RPD): gpt-oss-120b 30/1K · llama-3.3-70b 30/1K ·
+ * qwen3-32b 60/1K · llama-4-scout 30/1K · gpt-oss-20b 30/1K ·
+ * llama-3.1-8b 30/14.4K (deep fallback).
+ * Gemini free-tier: 3.1-flash-lite 15 RPM/500 RPD (workhorse), the other
+ * Flash models ~5 RPM/20 RPD (last resorts).
  */
 const CANDIDATES: ProviderCandidate[] = [
-  { provider: 'groq', model: 'meta-llama/llama-4-scout-17b-16e-instruct' },
+  { provider: 'groq', model: 'openai/gpt-oss-120b' },
   { provider: 'groq', model: 'llama-3.3-70b-versatile' },
+  { provider: 'groq', model: 'qwen/qwen3-32b' },
+  { provider: 'groq', model: 'meta-llama/llama-4-scout-17b-16e-instruct' },
+  { provider: 'groq', model: 'openai/gpt-oss-20b' },
   { provider: 'groq', model: 'llama-3.1-8b-instant' },
+  { provider: 'gemini', model: 'gemini-3.1-flash-lite' },
+  { provider: 'gemini', model: 'gemini-3.5-flash' },
+  { provider: 'gemini', model: 'gemini-3-flash' },
   { provider: 'gemini', model: 'gemini-2.5-flash' },
   { provider: 'gemini', model: 'gemini-2.5-flash-lite' },
 ];
@@ -187,12 +201,19 @@ const callProvider = async (
   const message = choice?.message || {};
 
   return {
-    content: typeof message.content === 'string' ? message.content : null,
+    content: typeof message.content === 'string' ? stripReasoning(message.content) : null,
     toolCalls: Array.isArray(message.tool_calls) ? message.tool_calls : [],
     provider: candidate.provider,
     model: candidate.model,
   };
 };
+
+/**
+ * Reasoning models (e.g. qwen3) may emit chain-of-thought inside <think>
+ * tags. Users should only ever see the final answer.
+ */
+const stripReasoning = (text: string): string =>
+  text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 
 /**
  * Run a chat completion against the candidate chain with automatic

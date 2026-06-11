@@ -5,6 +5,7 @@ import { User } from '../../users/models/user.model';
 import { Comment } from '../../tickets/models/comment.model';
 import { TicketEvent } from '../../tickets/models/ticket-event.model';
 import { ToolDefinition } from './ai-provider.service';
+import { formatPhDateTime } from './ph-time.util';
 
 /**
  * Function-calling tools the AI assistant can use. Every query is scoped to
@@ -37,8 +38,9 @@ const toSummary = (t: any) => ({
   priority: t.priority || 'None',
   reporter: t.reporter?.name || 'Unknown',
   assignee: t.assignee?.name || 'Unassigned',
-  createdAt: t.createdAt,
-  updatedAt: t.updatedAt,
+  descriptionPreview: t.description ? String(t.description).slice(0, 200) : null,
+  createdAt: formatPhDateTime(t.createdAt),
+  updatedAt: formatPhDateTime(t.updatedAt),
 });
 
 export const toolDefinitions: ToolDefinition[] = [
@@ -202,14 +204,14 @@ const getTicketDetails = async (ctx: ToolContext, args: any) => {
       recentComments: comments.map((c: any) => ({
         author: c.author?.name || 'Unknown',
         body: String(c.body || '').slice(0, 500),
-        createdAt: c.createdAt,
+        createdAt: formatPhDateTime(c.createdAt),
       })),
       recentActivity: events.map((e: any) => ({
         type: e.type,
         from: e.fromValue,
         to: e.toValue,
         actor: e.actor?.name || 'System',
-        createdAt: e.createdAt,
+        createdAt: formatPhDateTime(e.createdAt),
       })),
     },
     ticketRefs: [
