@@ -1,8 +1,8 @@
-# Service Ticket System
+# NexusTrack — Backend (service-ticket-system)
 
-> Internal IT/QA ticketing platform with a built-in approval workflow — testers report defects, developers fix them, admins triage, and approvers sign off before tickets close.
+> Multi-tenant QA/defect tracking API. Organizations split work into **Collections** (project spaces); inside each, testers report defects, developers fix them, admins triage, approvers sign off — with **multiple assignees**, **per-collection platform/version tagging**, threaded discussion, teammate DMs, and a built-in **AI assistant** (conversational queries, in-ticket Q&A, and duplicate detection).
 
-Service Ticket System is a **multi-tenant SaaS** ticketing platform: every organization gets its own isolated workspace of users, tickets, and notifications. Sign-up is a self-service **email-OTP** flow (register → verify code → set password), after which a user either **creates** a new organization (becoming its SuperAdmin) or **joins** an existing one via invite code. Inside each org, tester-reported defects flow through six lifecycle statuses with per-ticket approve/reject decisions and granular per-user notification preferences. The frontend is a React 19 SPA on Vercel; the backend is an **Express 4 app running on AWS Lambda** (exposed via a Lambda Function URL, no API Gateway), deployed by **GitHub Actions**, backed by **TiDB Cloud Serverless** (MySQL-compatible). The SLA housekeeping job runs on an **EventBridge** schedule that invokes the same Lambda.
+NexusTrack is a **multi-tenant SaaS**: every organization is an isolated workspace of users, collections, tickets, conversations, and notifications. Sign-up is a self-service **email-OTP** flow (register → verify code → set password); a user then **creates** an organization (becoming its SuperAdmin) or **joins** one via invite code. Work is organized into **Collections** — one per system/product — and each collection is its own dashboard, AI chat scope, and platform/version catalog. The frontend is a React 19 SPA on Vercel; this backend is an **Express 4 app running on AWS Lambda** (exposed via a Lambda **Function URL**, no API Gateway), deployed by **GitHub Actions**, backed by **TiDB Cloud Serverless** (MySQL-compatible). The AI layer runs on **Groq** (primary) with **Google Gemini** fallback.
 
 ---
 
@@ -10,11 +10,11 @@ Service Ticket System is a **multi-tenant SaaS** ticketing platform: every organ
 
 - **Live app:** https://service-ticket-system-frontend.vercel.app/login
 - **Backend:** AWS Lambda (Function URL) — serverless REST API, deployed via GitHub Actions
-- **Try it:** Log in with the seeded demo credentials (all in the **Demo Organization**, invite code `DEMO-CREW`) or register a brand-new account and create your own organization.
+- **Try it:** log in with the seeded demo accounts (all in the **Demo Organization**, invite code `DEMO-CREW`) or register a new account and create your own organization.
 
-> The Lambda may "cold start" after a period of inactivity — the first request can take a couple of seconds while the container and DB connection warm up. Subsequent requests are fast.
+> Cold starts: after a period of inactivity the first request may take a couple of seconds while the Lambda container and DB connection warm up. Subsequent requests are fast.
 
-### Demo accounts (Demo Organization)
+### Demo accounts
 
 | Role | Email | Password |
 |------|-------|----------|
@@ -29,33 +29,38 @@ Service Ticket System is a **multi-tenant SaaS** ticketing platform: every organ
 
 1. [What It Does](#what-it-does)
 2. [Architecture](#architecture)
-3. [Role Hierarchy & Permissions](#role-hierarchy--permissions)
-4. [Ticket Lifecycle](#ticket-lifecycle)
-5. [Tech Stack](#tech-stack)
-6. [Database Design](#database-design)
-7. [Repository Layout](#repository-layout)
-8. [Repos](#repos)
-9. [API Reference](#api-reference)
-10. [Security](#security)
-11. [Deployment & Environment Variables](#deployment--environment-variables)
-12. [Cost Breakdown](#cost-breakdown)
-13. [Local Development](#local-development)
-14. [Author](#author)
+3. [Collections — the workspace model](#collections--the-workspace-model)
+4. [Role Hierarchy & Permissions](#role-hierarchy--permissions)
+5. [Ticket Lifecycle & Assignment](#ticket-lifecycle--assignment)
+6. [AI Layer](#ai-layer)
+7. [Tech Stack](#tech-stack)
+8. [Database Design](#database-design)
+9. [Repository Layout](#repository-layout)
+10. [API Reference](#api-reference)
+11. [Security](#security)
+12. [Deployment & Environment Variables](#deployment--environment-variables)
+13. [Cost Breakdown](#cost-breakdown)
+14. [Local Development](#local-development)
+15. [Repos](#repos)
+16. [Author](#author)
 
 ---
 
 ## What It Does
 
-- **Four-role access control** — `SUPER_ADMIN`, `ADMIN`, `TESTER`, `DEVELOPER`, each with distinct capabilities enforced server-side by `permissions.middleware.ts`.
-- **Six ticket statuses** — `Open → In Progress → Ready for QA → Resolved / Error Persists → Closed`. Tester reports a defect; developer moves it through the workflow; admin/SuperAdmin approves (→ `Resolved`) or rejects (→ `Error Persists` for rework); admin eventually closes the ticket.
-- **Per-ticket approval audit** — every approve/reject decision is a separate `APPROVAL` row with approver id, status, comment, and timestamp. Multiple decisions over a ticket's lifetime are preserved — full audit trail.
-- **Notification preferences** — every user has a 1:1 `NOTIFICATION_SETTINGS` row (auto-created on user creation, defaults all true) covering assigned-ticket, ticket-updated, approved, and rejected events.
-- **In-process SLA cron** — `node-cron` fires inside the same Express process; no separate worker service. Scans for stale/overdue tickets and emits notifications on schedule.
-- **Auto-seed on boot** — on startup, the server idempotently seeds roles + ticket statuses + demo users (gated by `SEED_ON_BOOT` env var). No manual migration step for fresh deploys.
-- **CORS allow-list** — hardcoded to the Vercel frontend URL and localhost dev origins; overridable via `CORS_ORIGINS` env for custom deployments.
-- **Rate limiting** — `globalLimiter` on all routes, `loginLimiter` tightened on `/auth`.
-- **Health probe** — `GET /health` returns `{ status: "UP", service, timestamp }` — used by Render uptime checks and the System Pulse companion project.
-- **Profile self-service** — users change their own password from the Profile page.
+- **Multi-tenant workspaces** — every read/write is scoped to the caller's `organizationId`; organizations never see each other's data.
+- **Collections (project spaces)** — tickets are grouped into Collections (e.g. "Mobile App", "Billing"). Each collection has its own dashboard, AI chat history, and platform/version catalog. Collections are admin-managed; the default ("General") is auto-created and adopts any legacy orphan tickets.
+- **Four-role access control** — `SUPER_ADMIN`, `ADMIN`, `TESTER`, `DEVELOPER`, enforced server-side by `permissions.middleware.ts` and per-assignee role rules in the ticket service.
+- **Six-status lifecycle** — `Open → In Progress → Ready for QA → Error Persists → Resolved → Closed`, with **status-driven auto-reassignment** (In Progress → the developer who picks it up; Ready for QA → back to the reporter).
+- **Multiple assignees** — a ticket can have several assignees (join table `ticket_assignees`); the `assigned_to` column is retained as the **primary/lifecycle owner** that drives reassignment and notifications.
+- **Per-collection platform/version tagging** — admins curate a `platform_versions` catalog per collection (e.g. "Web · 1.1.0"); each ticket can be tagged with one or more (join table `ticket_platform_versions`).
+- **Approval audit** — every approve/reject is an immutable `approvals` row (approver, status, comment, timestamp).
+- **Threaded comments + activity timeline** — `ticket_comments` (nested replies) and an immutable `ticket_events` timeline (reported / assigned / reassigned / status_changed / approved / rejected).
+- **Direct messaging** — 1:1 teammate conversations (`conversations` + `messages`).
+- **Notifications + per-user preferences** — in-app `notifications` gated by a 1:1 `notification_settings` row.
+- **AI assistant** — org/collection-scoped conversational assistant with read-only function-calling tools, a stateless in-ticket assistant, and **deterministic duplicate detection** surfaced as a dashboard banner with an interactive review flow.
+- **Runtime self-provisioning** — feature tables are created idempotently on first request, so a code deploy needs no manual migration step (a hand-written migrate workflow mirrors the same schema).
+- **Health probe** — `GET /health` returns `{ status: "UP", service, timestamp }` and never touches the DB.
 
 ---
 
@@ -64,30 +69,59 @@ Service Ticket System is a **multi-tenant SaaS** ticketing platform: every organ
 ```mermaid
 graph TB
     Browser["Browser SPA · Vercel<br/>React 19 + Vite 8 + Tailwind 4<br/>react-router 7 · jwt-decode · axios"]
-    URL["Lambda Function URL<br/>auth-type NONE · public"]
-    Lambda["AWS Lambda · Node 20<br/>Express 4 via serverless-http<br/>helmet · CORS · Sequelize 6<br/>auth · organizations · users · tickets · notifications"]
-    TiDB[("TiDB Cloud Serverless · MySQL<br/>organizations · users · roles · tickets<br/>statuses · approvals · notifications · email_verifications")]
+    URL["Lambda Function URL<br/>auth-type NONE · public (no API Gateway)"]
+    Lambda["AWS Lambda · Node 20<br/>Express 4 via serverless-http<br/>helmet · CORS · Sequelize 6<br/>auth · orgs · users · collections · tickets<br/>notifications · conversations · ai"]
+    AI["AI providers<br/>Groq (primary) → Gemini (fallback)<br/>OpenAI-compatible chat + tool calling"]
+    TiDB[("TiDB Cloud Serverless · MySQL<br/>organizations · collections · users · roles<br/>tickets · ticket_assignees · platform_versions<br/>approvals · comments · events · notifications · ai_*")]
     Actions["GitHub Actions<br/>build → zip → deploy"]
+    Cron["EventBridge schedule<br/>daily SLA stale-ticket scan"]
 
     Browser -->|REST + JWT via axios| URL
     URL --> Lambda
-    Lambda -->|TLS, lazy pooled conn| TiDB
+    Lambda -->|TLS · lazy pooled conn| TiDB
+    Lambda -->|chat completions| AI
     Actions -.deploys.-> Lambda
+    Cron -.invokes.-> Lambda
 
     classDef edge fill:#0f1422,stroke:#6366f1,color:#e2e8f0
     classDef store fill:#0a0e1a,stroke:#6366f1,color:#a5b4fc
-    class Browser,URL,Lambda,Actions edge
+    class Browser,URL,Lambda,AI,Actions,Cron edge
     class TiDB store
 ```
 
 ### Notable architectural choices
 
-- **Express on Lambda, no always-on server.** The same Express app is wrapped with `serverless-http` and exposed through a Lambda Function URL. On a cold start the handler only wires model associations (in-memory); Sequelize opens the DB connection lazily on the first query and reuses it across warm invocations, so `/health` never depends on the DB. No API Gateway, no EventBridge — only the always-free Lambda tier.
-- **node-cron co-located with the API** saves an entire worker service. The trade-off is that horizontal scaling requires leader-election; at portfolio scale (single dyno) it is strictly better.
-- **Modular DDD-ish layout** — each domain (`tickets`, `users`, `notifications`) has its own `controllers / services / repositories / dtos / models / routes`. No cross-module imports beyond the associations file.
-- **Snake_case DB columns mapped to camelCase model attributes** via Sequelize `field:` — clean SQL audit trail, idiomatic TypeScript code.
-- **Auto-seed on boot** (`SEED_ON_BOOT=true`) — idempotent role + status + demo user seeding runs every start, making fresh Render deploys zero-manual-step.
-- **bcryptjs over bcrypt** — pure JS, no native build step; deploys cleanly to Render free tier and any serverless platform.
+- **Express on Lambda, no always-on server.** The same Express app is wrapped with `serverless-http` and exposed through a Lambda Function URL. Cold starts only wire model associations (in-memory); Sequelize opens the DB connection lazily on the first query and reuses it across warm invocations, so `/health` never depends on the DB. No API Gateway, no per-request gateway cost.
+- **Runtime schema self-provisioning.** Lightweight bootstrap guards (`ensureCollectionSchema`, `ensureTicketFeatureSchema`, `ensureAiTables`) run `CREATE TABLE IF NOT EXISTS` / additive `ALTER`s on first request, with one-time backfills (e.g. mirroring each ticket's single assignee into `ticket_assignees`). The same schema is mirrored in `scripts/migrate.ts`, run from a manual GitHub workflow. Production never runs a destructive `sync`.
+- **Single-assignee column + join table.** `tickets.assigned_to` stays as the primary/lifecycle owner so status transitions, notifications and the timeline keep working unchanged, while `ticket_assignees` holds the full set. Platform/version follows the same primary-column-plus-join pattern.
+- **Modular DDD-ish layout.** Each domain (`tickets`, `users`, `collections`, `notifications`, `conversations`, `ai`) owns its `controllers / services / repositories / dtos / models / routes`; cross-module wiring lives only in `associations/associations.ts`.
+- **Multi-provider AI with failover.** A candidate chain (Groq models first, then Gemini) is walked per call; on a 429 / quota error the candidate is parked in a cooldown bucket and the next one — including the other provider — is tried automatically.
+- **bcryptjs / mysql2 / serverless-http** — all pure JS, no native build step, so the same zip runs on the Amazon Linux Lambda runtime.
+
+---
+
+## Collections — the workspace model
+
+```mermaid
+flowchart LR
+    org["Organization (tenant)"] --> c1["Collection: Mobile App"]
+    org --> c2["Collection: Billing"]
+    c1 --> b1["Dashboard + tickets"]
+    c1 --> a1["AI chat scope"]
+    c1 --> p1["Platform/version catalog"]
+    c2 --> b2["Dashboard + tickets"]
+    c2 --> a2["AI chat scope"]
+    c2 --> p2["Platform/version catalog"]
+
+    classDef tier fill:#0f1422,stroke:#5eead4,color:#e2e8f0
+    classDef flow fill:#1f0f22,stroke:#a978ff,color:#e2c8ff
+    class org,c1,c2 tier
+    class b1,a1,p1,b2,a2,p2 flow
+```
+
+- A new ticket belongs to the collection whose dashboard it was created from (falling back to the org's default collection).
+- Deleting a collection moves its tickets to the oldest remaining collection — the last collection can't be deleted.
+- AI chats are scoped per collection (`ai_conversations.collection_id`); a collection's chat history never appears in another's.
 
 ---
 
@@ -95,19 +129,18 @@ graph TB
 
 ```mermaid
 flowchart LR
-    super["SUPER_ADMIN<br/>platform owner<br/>full access"]
-    admin["ADMIN<br/>triage + manage users<br/>assign & update tickets"]
-    dev["DEVELOPER<br/>work assigned tickets<br/>resolve defects"]
-    tester["TESTER<br/>report defects<br/>track own tickets"]
-    approval["Approval Flow<br/>SUPER_ADMIN or ADMIN<br/>approve / reject resolved tickets"]
+    super["SUPER_ADMIN<br/>platform owner · full access"]
+    admin["ADMIN<br/>triage + manage users<br/>manage collections & catalogs"]
+    dev["DEVELOPER<br/>work assigned tickets"]
+    tester["TESTER<br/>report defects · track own"]
+    approval["Approval Flow<br/>SUPER_ADMIN or ADMIN<br/>approve / reject Ready-for-QA"]
 
     super -->|create / delete / update users| admin
     super -->|approve / reject| approval
     admin -->|assign tickets to| dev
     admin -->|approve / reject| approval
-    tester -.create tickets.-> super
     tester -.create tickets.-> admin
-    dev -.update status to Resolved.-> approval
+    dev -.update status to Ready for QA.-> approval
 
     classDef tier fill:#0f1422,stroke:#5eead4,color:#e2e8f0
     classDef flow fill:#1f0f22,stroke:#a978ff,color:#e2c8ff
@@ -115,272 +148,297 @@ flowchart LR
     class approval flow
 ```
 
-| Role | Created by | Can create tickets | Can update tickets | Can approve/reject | Can manage users |
-|------|------------|-------------------|-------------------|-------------------|-----------------|
-| `SUPER_ADMIN` | Seed script | Yes | Yes (any) | Yes | Yes |
-| `ADMIN` | SUPER_ADMIN | Yes | Yes (any) | Yes | Yes (non-super) |
-| `DEVELOPER` | SUPER_ADMIN / ADMIN | No | Own assigned | No | No |
-| `TESTER` | SUPER_ADMIN / ADMIN | Yes | Own reported | No | No |
+| Role | Created by | Create tickets | Update tickets | Approve/reject | Manage users | Manage collections / catalogs |
+|------|-----------|----------------|----------------|----------------|--------------|-------------------------------|
+| `SUPER_ADMIN` | seed | Yes | Any | Yes | Yes | Yes |
+| `ADMIN` | SUPER_ADMIN | Yes | Any | Yes | Yes (non-super) | Yes |
+| `DEVELOPER` | SUPER_ADMIN / ADMIN | Yes | Own assigned | No | No | No |
+| `TESTER` | SUPER_ADMIN / ADMIN | Yes | Own reported | No | No | No |
 
-Permissions are enforced by `permissions.middleware.ts` and `role.utils.ts` — every route declares its minimum required role or specific action guard.
+Assignment is gated per assignee: tickets can't be assigned to SuperAdmins, and Admins/Testers/Developers can only assign within their permitted set. Assigning to oneself is always allowed.
 
 ---
 
-## Ticket Lifecycle
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Tester
-    actor Admin
-    actor Developer
-    actor Approver as Admin / Super Admin
-    participant API as Express API
-    participant DB as MySQL
-
-    Tester->>API: POST /tickets { title, description, priority }
-    API->>DB: INSERT ticket (statusId=Open, reportedBy=tester)
-    API-->>Tester: 201 ticket created
-
-    Admin->>API: PATCH /tickets/:id { assignedTo, statusId=In Progress }
-    API->>DB: UPDATE ticket + INSERT notification for developer
-    API-->>Admin: 200 updated
-
-    Developer->>API: PATCH /tickets/:id { statusId=Ready for QA }
-    API->>DB: UPDATE ticket + INSERT notification for admin
-    API-->>Developer: 200 ready for review
-
-    Approver->>API: POST /tickets/:id/approval { status=Approved, comment }
-    API->>DB: INSERT approval + UPDATE ticket statusId=Resolved
-    API->>DB: INSERT notification for reporter (gated by NOTIFICATION_SETTINGS)
-    API-->>Approver: 201 approval recorded
-
-    Note over Approver,DB: If status=Rejected: ticket statusId → Error Persists,<br/>developer iterates and re-submits for QA.
-```
-
-### Status state machine
+## Ticket Lifecycle & Assignment
 
 ```mermaid
 stateDiagram-v2
     [*] --> Open: Tester creates ticket
-    Open --> InProgress: Developer picks up / Admin assigns
-    InProgress --> ReadyForQA: Developer marks complete
-    ReadyForQA --> Resolved: Admin / Super Admin approves<br/>(Approval row status=Approved)
-    ReadyForQA --> ErrorPersists: Admin / Super Admin rejects<br/>(Approval row status=Rejected)
+    Open --> InProgress: Developer picks up (becomes primary owner)
+    InProgress --> ReadyForQA: Developer marks complete (owner → reporter)
+    ReadyForQA --> Resolved: Admin / Super Admin approves
+    ReadyForQA --> ErrorPersists: Admin / Super Admin rejects
     ErrorPersists --> InProgress: Developer iterates
     Resolved --> Closed: Admin closes
     Closed --> [*]
 ```
 
-> Note: `Approved` and `Rejected` are values on the `APPROVAL` row, not ticket statuses. The ticket itself transitions to `Resolved` (on approve) or `Error Persists` (on reject) — see `src/modules/tickets/services/approval.service.ts`.
+- **Multiple assignees:** `assigneeIds[]` on create/update sets the full roster; the first becomes the primary (`assigned_to`). Status transitions add the lifecycle owner (the actor on *In Progress*, the reporter on *Ready for QA*) to the set without removing others.
+- **Audit & timeline:** approve/reject decisions are immutable `approvals` rows; assignment/status changes are written to `ticket_events`.
+- `Approved` / `Rejected` are values on the approval row — the ticket itself moves to `Resolved` (approve) or `Error Persists` (reject). See `src/modules/tickets/services/approval.service.ts`.
+
+---
+
+## AI Layer
+
+Three AI surfaces, all read-only and **organization-scoped**:
+
+1. **Conversational assistant** (`/ai/conversations/:id/messages`) — a tool-calling agent loop (max 5 rounds) with read-only tools: `query_tickets`, `get_ticket_details`, `query_comments`, `query_activity`, `find_duplicate_tickets`, `list_collections`, `get_ticket_stats`, `list_team_members`. It references tickets as `[ticket:<id>|<title>]` tokens that the UI renders as clickable chips.
+2. **In-ticket assistant** (`/ai/tickets/:ticketId/ask`) — stateless Q&A / summary about one ticket; the full ticket context is loaded server-side, so no tools are needed.
+3. **Duplicate detection** (`/ai/duplicates`) — flags tickets that describe the same underlying issue, surfaced as a dashboard banner and an interactive "Verify with AI" review (open / delete / keep). Runs at **temperature 0** so the banner and the chat always agree; results are cached per org+collection (positive hits longer; empty results briefly, so the banner self-heals).
+
+```mermaid
+flowchart TB
+    req["Request (chat / banner / in-ticket)"] --> chain["Provider chain<br/>Groq models → Gemini models"]
+    chain -->|429 / quota| cool["Cooldown bucket<br/>try next candidate"]
+    cool --> chain
+    chain --> out["Completion (+ tool calls)"]
+    classDef edge fill:#0f1422,stroke:#6366f1,color:#e2e8f0
+    class req,chain,cool,out edge
+```
+
+Set `GROQ_API_KEY` and/or `GEMINI_API_KEY` to enable `/ai/*`; with both set, a single provider's rate limit never takes the AI features down.
 
 ---
 
 ## Tech Stack
 
-### Backend
-
-| Layer | Technology | Why |
-|-------|-----------|-----|
-| Runtime | Node.js + TypeScript 5 | Typed, modern Node LTS |
-| Framework | **Express 4** | Lightweight, broad ecosystem |
-| ORM | **Sequelize 6** + mysql2 | Full-featured ORM, association DSL, migrations |
-| Database | **MySQL** | Broader free-tier availability than Postgres |
-| Auth | JWT (`jsonwebtoken`) | Stateless, no session store |
-| Password | **bcryptjs** | Pure JS, no native build step |
-| Validation | **Yup** | Schema-first, composable |
-| Scheduler | **node-cron** | In-process cron; no extra service |
-| Notifications | In-app only (DB rows) | `NOTIFICATION` and `NOTIFICATION_SETTINGS` tables — no email layer wired up |
-| Security | helmet · cors · rate-limit | CORS allow-list, security headers, per-route limiters |
-| Dev | nodemon · ts-node · typescript 5 | Hot reload, no build step in dev |
-
-### Frontend
-
-| Layer | Technology | Why |
-|-------|-----------|-----|
-| Framework | **React 19** + TypeScript 5 | Latest React, typed props |
-| Build | **Vite 8** | Sub-second HMR, fast CI builds |
-| Styling | **Tailwind CSS 4** | Utility-first, latest engine |
-| Routing | react-router-dom 7 | Nested layouts, protected routes |
-| HTTP | **axios** | Interceptors for JWT injection |
-| Auth | jwt-decode | Token inspection client-side |
-| Icons | lucide-react | Consistent icon set |
-| Linting | ESLint 9 + typescript-eslint | Strict type-aware lint |
-| Hosting | **Vercel** | Auto-deploy from main, global CDN, free SSL |
+| Layer | Technology |
+|-------|-----------|
+| Runtime | Node.js 20 + TypeScript 5 |
+| Framework | Express 4 (+ `serverless-http` on Lambda) |
+| ORM | Sequelize 6 + `mysql2` |
+| Database | TiDB Cloud Serverless (MySQL-compatible) |
+| Auth | JWT (`jsonwebtoken`) · bcryptjs |
+| Validation | Yup (`validator.middleware.ts`) |
+| AI | Groq + Google Gemini (OpenAI-compatible chat + tool calling), plain `fetch` |
+| Security | helmet · cors allow-list · per-route rate limiting |
+| CI/CD | GitHub Actions → AWS Lambda + Function URL; EventBridge for the SLA cron |
+| Dev | nodemon · ts-node |
 
 ---
 
 ## Database Design
 
-Seven Sequelize models with UUID v4 primary keys throughout. DB columns are snake_case; model attributes are camelCase, mapped via Sequelize `field:` — clean SQL audit trail, idiomatic JS code.
+UUID v4 primary keys throughout. DB columns are snake_case; model attributes are camelCase (Sequelize `field:`).
 
 ```mermaid
 erDiagram
+    ORGANIZATION ||--o{ USER : members
+    ORGANIZATION ||--o{ COLLECTION : owns
+    COLLECTION ||--o{ TICKET : groups
+    COLLECTION ||--o{ PLATFORM_VERSION : catalog
     ROLE ||--o{ USER : assigned
     TICKET_STATUS ||--o{ TICKET : labels
     USER ||--o{ TICKET : reports
-    USER ||--o{ TICKET : assigned
-    USER ||--o{ APPROVAL : approves
+    USER ||--o{ TICKET : "primary assignee"
+    TICKET ||--o{ TICKET_ASSIGNEE : assignees
+    USER ||--o{ TICKET_ASSIGNEE : on
+    TICKET ||--o{ TICKET_PLATFORM_VERSION : tagged
+    PLATFORM_VERSION ||--o{ TICKET_PLATFORM_VERSION : used
     TICKET ||--o{ APPROVAL : audited
+    TICKET ||--o{ TICKET_COMMENT : discussion
+    TICKET ||--o{ TICKET_EVENT : timeline
     USER ||--|| NOTIFICATION_SETTINGS : has
     USER ||--o{ NOTIFICATION : receives
-    TICKET ||--o{ NOTIFICATION : about
-
-    ROLE {
-        uuid id PK
-        string name UK
-    }
-    USER {
-        uuid id PK
-        string email UK
-        uuid roleId FK
-        string password
-    }
-    TICKET_STATUS {
-        uuid id PK
-        string name UK
-    }
-    TICKET {
-        uuid id PK
-        string title
-        text description
-        uuid reportedBy FK
-        uuid assignedTo FK
-        uuid statusId FK
-        string priority
-    }
-    APPROVAL {
-        uuid id PK
-        uuid ticketId FK
-        uuid approverId FK
-        string status
-        text comment
-        datetime approvedAt
-    }
-    NOTIFICATION {
-        uuid id PK
-        uuid userId FK
-        string message
-        bool read
-        uuid ticketId FK
-    }
-    NOTIFICATION_SETTINGS {
-        uuid id PK
-        uuid userId FK
-        bool notifyAssignedTicket
-        bool notifyReportedTicketUpdated
-        bool notifyTicketApproved
-        bool notifyTicketRejected
-    }
+    USER ||--o{ AI_CONVERSATION : owns
+    AI_CONVERSATION ||--o{ AI_MESSAGE : contains
 ```
 
-### Table details
+Key tables beyond the originals:
 
-#### `tickets`
+| Table | Purpose |
+|-------|---------|
+| `organizations` | Tenant root (name, slug, invite_code, owner_id) |
+| `collections` | Project spaces within an org |
+| `platform_versions` | Per-collection build catalog — unique `(collection_id, platform, version)` |
+| `ticket_assignees` | Many-to-many assignees — unique `(ticket_id, user_id)` |
+| `ticket_platform_versions` | Many-to-many ticket ↔ platform/version |
+| `ticket_comments` | Threaded comments (`parent_id` for replies) |
+| `ticket_events` | Immutable activity timeline |
+| `conversations` / `messages` | 1:1 teammate direct messages |
+| `ai_conversations` / `ai_messages` | Per-user AI chat threads (scoped per collection) + messages |
+| `email_verifications` | OTP sign-up codes |
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | UUID (PK) | v4 |
-| `title` | VARCHAR | |
-| `description` | TEXT | |
-| `reported_by` | UUID (FK → users.id) | |
-| `assigned_to` | UUID (FK → users.id) | nullable |
-| `status_id` | UUID (FK → ticket_statuses.id) | |
-| `priority` | VARCHAR | `LOW / MEDIUM / HIGH / CRITICAL` |
-
-#### `approvals`
-
-Per-decision audit row — multiple approvals over a ticket's lifetime are preserved.
-
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | UUID (PK) | |
-| `ticket_id` | UUID (FK) | |
-| `approver_id` | UUID (FK) | |
-| `status` | ENUM | `Approved / Rejected` |
-| `comment` | TEXT | becomes part of audit trail |
-
-#### `notification_settings`
-
-1:1 with users. Defaults all `true` — auto-created for new users.
-
-| Column | Type |
-|--------|------|
-| `user_id` | UUID (FK) |
-| `notify_assigned_ticket` | BOOLEAN |
-| `notify_reported_ticket_updated` | BOOLEAN |
-| `notify_ticket_approved` | BOOLEAN |
-| `notify_ticket_rejected` | BOOLEAN |
-
-**Notable design choices:**
-
-- **UUID v4 everywhere** — no sequential IDs leaking row counts or enabling enumeration attacks.
-- **`TICKET_STATUS` as a reference table** — statuses are seeded rows, not a VARCHAR enum. Adding a status is a row insert, not a schema change.
-- **`APPROVAL` as an immutable audit log** — each approve/reject is a new row; the full history of decisions is always queryable.
-- **`NOTIFICATION_SETTINGS` auto-created** on user insert by `notification-setting.service.ts` — users always have preferences; no null checks needed.
+`tickets` carries `organization_id`, `collection_id`, `platform_version_id` (primary), `assigned_to` (primary owner), `reported_by`, `status_id`, `priority`, optional `jam_url`.
 
 ---
 
 ## Repository Layout
 
 ```
-service-ticket-system/           ← this repo (backend)
-├── package.json                 # Express 4, Sequelize 6, node-cron, bcryptjs, Yup
-├── tsconfig.json
+service-ticket-system/                 ← this repo (backend)
 └── src/
-    ├── server.ts                # Entry: boot → connectDB → defineAssociations → seed → cron → listen
-    ├── associations/
-    │   └── associations.ts      # All Sequelize hasMany / belongsTo wired here
-    ├── config/
-    │   ├── db.ts                # Sequelize instance + connectDB()
-    │   ├── roles.ts             # Role name constants
-    │   └── statuses.ts          # Ticket status name constants
-    ├── middlewares/
-    │   ├── auth.middleware.ts       # JWT verify → req.user
-    │   ├── permissions.middleware.ts # Role + action guards
-    │   ├── rate-limit.middleware.ts  # globalLimiter + loginLimiter
-    │   ├── role.utils.ts            # hasRole, isAtLeast helpers
-    │   ├── security-headers.middleware.ts
-    │   └── validator.middleware.ts  # Yup schema runner
+    ├── server.ts                       # local entry: connectDB → defineAssociations → seed → cron → listen
+    ├── lambda.ts                       # serverless-http handler (+ scheduled-event SLA job)
+    ├── app.ts                          # express app: helmet, CORS allow-list, routers, /health
+    ├── associations/associations.ts    # all Sequelize relations (incl. assignees & platform/version M:N)
+    ├── config/                         # db.ts · roles.ts · statuses.ts
+    ├── middlewares/                    # auth · permissions · rate-limit · validator · security-headers
     ├── modules/
-    │   ├── tickets/
-    │   │   ├── controllers/     # create, list, get, update, approval, fetch-status
-    │   │   ├── cron/
-    │   │   │   └── ticket.cron.ts  # SLA reminders + stale-ticket scan
-    │   │   ├── dtos/            # create-ticket, update-ticket, create-approval, response shapes
-    │   │   ├── models/          # Ticket, TicketStatus, Approval (Sequelize models)
-    │   │   ├── repositories/    # ticket, ticket-status, approval
-    │   │   ├── routes/
-    │   │   │   └── ticket.routes.ts
-    │   │   └── services/
-    │   │       ├── ticket.service.ts    # Full CRUD + status transitions + notifications
-    │   │       └── approval.service.ts  # Approve/reject logic + audit row
-    │   ├── users/
-    │   │   ├── controllers/     # auth, login, create, list, get, update, delete,
-    │   │   │                    # notification settings (get + update), fetch-role
-    │   │   ├── dtos/
-    │   │   ├── models/          # User, Role, NotificationSettings
-    │   │   ├── repositories/    # user, role, notification-setting
-    │   │   ├── routes/          # auth.routes, user.routes, notification-settings.routes
-    │   │   └── services/        # auth, user, notification-setting
-    │   └── notifications/
-    │       ├── controllers/     # list-notifications
-    │       ├── dtos/
-    │       ├── models/          # Notification
-    │       ├── repositories/    # notification
-    │       ├── routes/
-    │       └── services/        # notification.service
-    ├── scripts/
-    │   ├── seed-roles.ts        # Idempotent role seeding
-    │   ├── seed-ticket-status.ts
-    │   ├── seed-users.ts        # Demo accounts for all four roles
-    │   └── sync-db.ts           # Sequelize sync (force: false)
-    └── utils/
-        ├── notification.validation.ts
-        ├── ticket.validation.ts
-        └── user.validation.ts
+    │   ├── tickets/                     # tickets, assignees, platform-version FK, comments, events, approvals, cron
+    │   ├── collections/                 # collections + per-collection platform_versions (nested routes)
+    │   ├── users/                       # auth (OTP), users, roles, notification-settings
+    │   ├── notifications/               # in-app notifications
+    │   ├── conversations/               # teammate direct messages
+    │   ├── organizations/               # org create / join / me
+    │   └── ai/                          # provider chain, chat agent loop, tools, duplicate detection, bootstrap
+    ├── scripts/                         # migrate.ts (idempotent) + seed-roles / status / users
+    └── utils/                           # Yup validation schemas, token, email
+```
 
-service-ticket-system-frontend/  ← companion repo (see Repos section)
+---
+
+## API Reference
+
+Base URL = the Lambda Function URL. All authenticated routes take `Authorization: Bearer <jwt>` and are tenant-scoped.
+
+### Auth & Onboarding
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| POST | `/auth/register` | none | Start sign-up — sends a 6-digit OTP |
+| POST | `/auth/verify-otp` | none | `{ email, code }` → short-lived registration token |
+| POST | `/auth/set-password` | none | `{ registrationToken, name, password }` → account + JWT |
+| POST | `/auth/login` | none | Email + password → JWT |
+
+### Organizations
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| POST | `/organizations` | session | Create org (caller becomes SuperAdmin); re-issues JWT |
+| POST | `/organizations/join` | session | Join via `{ inviteCode }`; re-issues JWT |
+| GET | `/organizations/me` | session + org | Current org details |
+
+### Collections & Platform/Versions
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| GET | `/collections` | session + org | List collections with ticket counts |
+| POST | `/collections` | admin | Create a collection |
+| PATCH | `/collections/:id` | admin | Rename / update a collection |
+| DELETE | `/collections/:id` | admin | Delete (tickets move to default) |
+| GET | `/collections/:collectionId/platform-versions` | session + org | List the catalog |
+| POST | `/collections/:collectionId/platform-versions` | admin | Add a platform/version |
+| PATCH | `/collections/:collectionId/platform-versions/:id` | admin | Edit |
+| DELETE | `/collections/:collectionId/platform-versions/:id` | admin | Delete (detaches tickets) |
+
+### Tickets
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| GET | `/tickets/statuses` | none | Reference data |
+| GET | `/tickets` | session + org | List (collection-scoped, `Cache-Control: no-store`) |
+| GET | `/tickets/:id` | session + org | Ticket detail (assignees + platform/versions) |
+| POST | `/tickets` | session + org | Create with `assigneeIds[]` + `platformVersionIds[]` |
+| PATCH | `/tickets/:id` | session + org | Update status / assignees / platform-versions / details |
+| DELETE | `/tickets/:id` | session + org (admin or reporter) | Delete |
+| POST | `/tickets/:id/approval` | SUPER_ADMIN / ADMIN | Approve (→ Resolved) / reject (→ Error Persists) |
+| GET | `/tickets/:id/comments` | session + org | Threaded comments |
+| POST | `/tickets/:id/comments` | session + org | Add a comment / reply |
+| DELETE | `/tickets/:id/comments/:commentId` | author | Delete a comment |
+| GET | `/tickets/:id/history` | session + org | Activity timeline |
+
+### Notifications · Conversations
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| GET | `/notifications` | session + org | List |
+| GET | `/notifications/unread-count` | session + org | `{ count }` |
+| PATCH | `/notifications/:id/read` · `/notifications/read-all` | session + org | Mark read |
+| GET/POST | `/conversations` · `/conversations/:id/messages` | session + org | Teammate DMs (polled for real-time) |
+| GET | `/conversations/unread-count` | session + org | DM badge |
+
+### Users
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| GET | `/users` | ADMIN / DEVELOPER / TESTER | List members (for assignee pickers) |
+| POST | `/users` | admin | Create user with role |
+| GET/PUT/DELETE | `/users/:id` | owner-or-admin + hierarchy | Read / update / delete |
+| GET | `/users/roles` | none | Roles lookup |
+| GET/PATCH | `/users/notification-settings` | session | Read / update preferences |
+| GET/PATCH | `/users/me` | session | Profile self-service |
+
+### AI
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| GET | `/ai/status` | session + org | `{ configured }` |
+| GET | `/ai/duplicates` | session + org | Cached duplicate detection (dashboard banner) |
+| GET/POST | `/ai/conversations` | session + org | List / create chat threads |
+| GET | `/ai/conversations/:id/messages` | session + org | Thread messages (+ ticket refs, duplicate groups) |
+| POST | `/ai/conversations/:id/messages` | session + org | Send a message; runs the tool-calling agent loop |
+| PATCH/DELETE | `/ai/conversations/:id` | session + org | Rename / delete a thread |
+| POST | `/ai/tickets/:ticketId/ask` | session + org | Stateless in-ticket assistant |
+
+### Health
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| GET | `/health` | none | `{ status: "UP", service, timestamp }` — never touches the DB |
+
+---
+
+## Security
+
+| Layer | Defense |
+|-------|---------|
+| Passwords | bcryptjs hash + compare |
+| JWT | Signed, short-lived; verified on every protected route (`auth.middleware.ts`) |
+| Tenant isolation | Every query scoped to `organizationId`; cross-org access returns 404 |
+| Rate limiting | `globalLimiter` on all routes; tighter limiter on `/auth` and AI generation endpoints |
+| CORS | Explicit allow-list (Vercel frontend + Vercel preview regex + localhost), overridable via `CORS_ORIGINS` |
+| Headers | helmet + custom `security-headers.middleware.ts` |
+| Validation | Yup schemas run before controllers |
+| AI safety | Tools are read-only and org-scoped; the assistant cannot mutate data or cross tenants |
+| UUID PKs | No sequential IDs — no enumeration / row-count leakage |
+| Body cap | `express.json({ limit: "1mb" })` |
+
+---
+
+## Deployment & Environment Variables
+
+CI/CD is **GitHub Actions** (`.github/workflows/deploy-backend.yml`): on every push to `main` it builds the TypeScript, packages a zip (`dist/` + production `node_modules`), and creates/updates the Lambda function and its public Function URL via the AWS CLI. A separate **Database (migrate / seed)** workflow runs the idempotent `migrate.ts` + seeds.
+
+| Secret | Required | Purpose |
+|--------|----------|---------|
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | ✅ | CI IAM user |
+| `AWS_REGION` | ➖ | default `us-east-1` |
+| `DB_HOST` `DB_PORT` `DB_NAME` `DB_USER` `DB_PASSWORD` | ✅ | TiDB Cloud connection |
+| `JWT_SECRET` | ✅ | JWT signing |
+| `CORS_ORIGINS` | ✅ | Frontend origin allow-list |
+| `EMAIL_USER` / `EMAIL_PASS` | ➖ | Gmail App Password for OTP email (omit for demo OTP mode) |
+| `GROQ_API_KEY` / `GEMINI_API_KEY` | ➖ | AI providers (≥1 required for `/ai/*`; both enable failover) |
+| `LAMBDA_FUNCTION_NAME` / `LAMBDA_ROLE_ARN` | ➖ | Override function name / use an existing role |
+
+Runtime env (set by the deploy workflow): `NODE_ENV=production`, `SKIP_DB_BOOTSTRAP=true` (managed DB), `SEED_ON_BOOT=false`, `DB_SSL=true`, plus the secrets above.
+
+> **Cron on Lambda:** the SLA stale-ticket job is exported as `runStaleTicketCheck()` and invoked by a scheduled event the handler detects; locally, `initCronJobs()` runs it in-process.
+
+---
+
+## Cost Breakdown
+
+Designed for **$0/month** — every layer is a free tier with no expiry.
+
+| Service | Free tier | We use | Headroom |
+|---------|-----------|--------|----------|
+| AWS Lambda + Function URL | 1M req + 400k GB-s / mo (always-free) | portfolio traffic | 99%+ |
+| AWS EventBridge | 14M scheduled invocations / mo | ~1 / day | ~100% |
+| TiDB Cloud Serverless (MySQL) | 5 GB + generous RUs | < 50 MB | 99%+ |
+| Groq + Google Gemini | free-tier RPM/RPD per model | cached, low volume | failover |
+| Vercel Hobby (frontend) | 100 GB bandwidth | < 500 MB/mo | 99.5% |
+| GitHub Actions (public repo) | unlimited minutes | CI/CD | unlimited |
+
+---
+
+## Local Development
+
+```bash
+git clone https://github.com/Asciente-rks/service-ticket-system.git
+cd service-ticket-system
+npm install
+cp .env.example .env        # fill DB_* + JWT_SECRET (+ optional GROQ/GEMINI keys)
+
+npm run dev                 # ts-node + nodemon on :3000 (in-process cron + auto-seed)
+npm run build               # tsc -> dist/
+npm run db:migrate          # idempotent additive schema migration (safe on a live DB)
+npm run seed:all            # roles + statuses + Demo Organization
+
+# Frontend (separate repo): set VITE_API_URL=http://localhost:3000
 ```
 
 ---
@@ -389,205 +447,8 @@ service-ticket-system-frontend/  ← companion repo (see Repos section)
 
 | Repo | Stack | Link |
 |------|-------|------|
-| **service-ticket-system** (this repo) | REST API · Express 4 + Sequelize + MySQL + node-cron | https://github.com/Asciente-rks/service-ticket-system |
-| **service-ticket-system-frontend** | Web SPA · React 19 + Vite 8 + Tailwind 4 | https://github.com/Asciente-rks/service-ticket-system-frontend |
-
-The frontend is a separate repo deployed independently to Vercel. It consumes this API via `axios` with a `VITE_API_URL` env var pointing at the Render service URL.
-
----
-
-## API Reference
-
-### Auth & Onboarding
-
-| Method | Path | Auth | Purpose |
-|--------|------|------|---------|
-| POST | `/auth/register` | none | Start sign-up: `{ email }` → sends a 6-digit OTP |
-| POST | `/auth/verify-otp` | none | `{ email, code }` → returns a short-lived `registrationToken` |
-| POST | `/auth/set-password` | none | `{ registrationToken, name, password }` → creates the account, returns JWT |
-| POST | `/auth/login` | none | Email + password → JWT |
-| GET | `/auth/me` | session | Current user profile (id, name, email, roleId, organizationId) |
-
-> The JWT encodes `organizationId`. A freshly-registered user has `organizationId: null` and must create or join an org before accessing tenant data.
-
-### Organizations
-
-| Method | Path | Auth | Purpose |
-|--------|------|------|---------|
-| POST | `/organizations` | session | Create an org `{ name }`; caller becomes its SuperAdmin. Returns a re-issued JWT. |
-| POST | `/organizations/join` | session | Join via `{ inviteCode }`; caller joins as Tester. Returns a re-issued JWT. |
-| GET | `/organizations/me` | session + org | Current org (name, slug, memberCount; invite code shown to admins) |
-
-### Users
-
-| Method | Path | Auth | Purpose |
-|--------|------|------|---------|
-| GET | `/users` | session + role check (ADMIN / DEVELOPER / TESTER) | List users |
-| GET | `/users/:id` | session + owner-or-admin | Get a single user |
-| POST | `/users` | session + admin | Create user with role assignment |
-| PUT | `/users/:id` | session + owner-or-admin + role-hierarchy check | Update user details |
-| DELETE | `/users/:id` | session + owner-or-admin + role-hierarchy check | Hard delete user |
-| GET | `/users/roles` | none | List all roles (lookup table) |
-| GET | `/users/notification-settings` | session | Get the **current user's** notification preferences |
-| PATCH | `/users/notification-settings` | session | Update the current user's notification preferences |
-
-### Tickets
-
-| Method | Path | Auth | Purpose |
-|--------|------|------|---------|
-| GET | `/tickets/statuses` | none | List all ticket statuses (no auth — reference data) |
-| GET | `/tickets` | session | List tickets (role-filtered server-side) |
-| GET | `/tickets/:id` | session | Ticket detail |
-| POST | `/tickets` | session + org + role check (SUPER_ADMIN / ADMIN / TESTER) | Create a ticket |
-| PATCH | `/tickets/:id` | session + org | Update status, assignee, details (deeper checks live in the service layer) |
-| DELETE | `/tickets/:id` | session + org (admin or reporter) | Delete a ticket within the caller's org |
-| POST | `/tickets/:id/approval` | session + org + role check (SUPER_ADMIN / ADMIN) | Approve (→ Resolved) or reject (→ Error Persists) a Ready-for-QA ticket |
-
-> All ticket reads/writes are scoped to the caller's `organizationId` — one org can never see or modify another's tickets.
-
-### Notifications
-
-| Method | Path | Auth | Purpose |
-|--------|------|------|---------|
-| GET | `/notifications` | session + org | List notifications for the current user |
-| GET | `/notifications/unread-count` | session + org | `{ count }` of unread notifications (drives the header badge) |
-| PATCH | `/notifications/:id/read` | session + org | Mark a single notification read |
-| PATCH | `/notifications/read-all` | session + org | Mark all of the user's notifications read |
-
-### AI Assistant
-
-Free-tier LLMs (Groq first for speed, Google Gemini as fallback) with automatic provider/model switching whenever a per-minute or per-day rate limit is hit. The assistant has read-only, org-scoped function-calling tools (`query_tickets`, `get_ticket_details`, `get_ticket_stats`, `list_team_members`) and references tickets as `[ticket:<id>|<title>]` tokens, which the frontend renders as clickable links that open the ticket.
-
-| Method | Path | Auth | Purpose |
-|--------|------|------|---------|
-| GET | `/ai/status` | session + org | `{ configured }` — whether any AI provider key is set |
-| GET | `/ai/conversations` | session + org | List the caller's AI chat threads |
-| POST | `/ai/conversations` | session + org | Create a new AI chat thread (optional `{ title }`) |
-| GET | `/ai/conversations/:id/messages` | session + org | Thread + messages (incl. `ticketRefs` for link rendering) |
-| POST | `/ai/conversations/:id/messages` | session + org | Send `{ body }`; runs the tool-calling agent loop, returns user + assistant messages |
-| PATCH | `/ai/conversations/:id` | session + org | Rename a thread `{ title }` |
-| DELETE | `/ai/conversations/:id` | session + org | Delete a thread and its messages |
-| POST | `/ai/tickets/:ticketId/ask` | session + org | Stateless in-ticket assistant: `{ question?, history? }` — empty question = summarize |
-
----
-
-## Security
-
-| Layer | Defense |
-|-------|---------|
-| Password storage | bcryptjs hash + compare |
-| JWT | Short-lived signed tokens; verified on every protected route by `auth.middleware.ts` |
-| Rate limiting | `globalLimiter` on all routes; `loginLimiter` (tighter) on `/auth` |
-| CORS | Explicit allow-list: Vercel frontend URL + localhost dev origins; overridable via env |
-| Security headers | helmet (CSP disabled for SPA flexibility, CORP set to `cross-origin`) + custom `security-headers.middleware.ts` |
-| Input validation | Yup schemas in `utils/*.validation.ts`, run by `validator.middleware.ts` before controllers |
-| Role enforcement | `permissions.middleware.ts` checks `req.user.role` against declared minimum per route |
-| UUID PKs | No sequential IDs — prevents row-count leakage and enumeration |
-| Body size cap | `express.json({ limit: "1mb" })` |
-
----
-
-## Deployment & Environment Variables
-
-The backend runs on **AWS Lambda** behind a **Lambda Function URL** (no API Gateway, so no per-request gateway cost). CI/CD is **GitHub Actions** (`.github/workflows/deploy-backend.yml`): on every push to `main` it builds the TypeScript, packages a zip (`dist/` + production `node_modules`), and creates/updates the function, its Function URL (with CORS), and a daily EventBridge schedule for the SLA job — all via the AWS CLI.
-
-### One-time setup
-
-1. **Create an AWS IAM user** for CI with programmatic access and a policy covering `lambda:*`, `iam:CreateRole` / `iam:GetRole` / `iam:AttachRolePolicy` / `iam:PassRole`, `events:*`, and `sts:GetCallerIdentity` (least-privilege policy JSON is in the repo discussion / can be scoped to the specific role + function ARNs). If you'd rather not grant IAM-create, pre-create the execution role and pass its ARN as `LAMBDA_ROLE_ARN`.
-2. **Add GitHub repository secrets** (Settings → Secrets and variables → Actions):
-
-| Secret | Required | Purpose |
-|--------|----------|---------|
-| `AWS_ACCESS_KEY_ID` | ✅ | CI IAM user access key |
-| `AWS_SECRET_ACCESS_KEY` | ✅ | CI IAM user secret |
-| `AWS_REGION` | ➖ | AWS region (default `us-east-1`) |
-| `DB_HOST` `DB_PORT` `DB_NAME` `DB_USER` `DB_PASSWORD` | ✅ | TiDB Cloud connection |
-| `JWT_SECRET` | ✅ | Long random string for signing JWTs |
-| `CORS_ORIGINS` | ✅ | Comma-separated frontend origins (Express allow-list) |
-| `EMAIL_USER` `EMAIL_PASS` | ➖ | Gmail address + 16-char App Password for OTP email (omit to use demo OTP mode) |
-| `EXPOSE_OTP` | ➖ | `true` to return the OTP in the API response even with email set (demo) |
-| `JWT_EXPIRES_IN` | ➖ | Session token lifetime (default `8h`) |
-| `LAMBDA_FUNCTION_NAME` | ➖ | Override function name (default `service-ticket-system-api`) |
-| `LAMBDA_ROLE_ARN` | ➖ | Use an existing execution role instead of auto-creating one |
-
-3. **Push to `main`** (or run the *Deploy Backend to AWS Lambda* workflow). The workflow's summary prints the **Function URL** — use it as the frontend's `VITE_API_URL`.
-4. **Run the *Database (migrate / seed)* workflow** (Actions tab → manual `workflow_dispatch`, `action: both`) once to create the new tables/columns and seed roles, statuses, and the Demo Organization.
-
-### Runtime env vars (set automatically by the deploy workflow on the function)
-
-| Variable | Value | Notes |
-|----------|-------|-------|
-| `NODE_ENV` | `production` | |
-| `SKIP_DB_BOOTSTRAP` | `true` | Skips `CREATE DATABASE` on connect (managed DB) |
-| `DB_SSL` | `true` | TLS to TiDB |
-| `DB_*` / `JWT_SECRET` / `CORS_ORIGINS` / `EMAIL_USER` / `EMAIL_PASS` | from secrets | |
-| `GROQ_API_KEY` / `GEMINI_API_KEY` | from secrets | AI assistant providers (at least one required for `/ai/*`; both enables rate-limit fallback) |
-
-### Local development & DB scripts
-
-```bash
-npm run dev             # ts-node + nodemon on :3000 (in-process cron + auto-seed)
-npm run build           # tsc -> dist/
-npm run db:migrate      # idempotent additive schema migration (safe on live DB)
-npm run seed:roles      # idempotent role rows
-npm run seed:status     # idempotent ticket status rows
-npm run seed:users      # Demo Organization + 4 demo accounts
-npm run seed:all        # roles + statuses + users in sequence
-```
-
-> **Cron in Lambda:** `node-cron` cannot run in Lambda's event-driven model. The SLA stale-ticket job is exported as `runStaleTicketCheck()` and invoked by an EventBridge schedule (`cron(0 9 * * ? *)`) that sends the Lambda an event the handler detects (`{ "__cron": true }`). Locally, `initCronJobs()` still runs it in-process.
-
----
-
-## Cost Breakdown
-
-Designed for **$0/month** — every layer runs on a free tier with no expiry.
-
-| Service | Free tier | We use | Headroom |
-|---------|-----------|--------|----------|
-| AWS Lambda + Function URL | 1M requests + 400k GB-s / mo (always-free) | A portfolio app's traffic | 99%+ |
-| AWS EventBridge | 14M scheduled invocations / mo free | 1 invocation/day | ~100% |
-| TiDB Cloud Serverless (MySQL) | 5 GB storage + generous RUs | < 50 MB | 99%+ |
-| Vercel Hobby (frontend) | 100 GB bandwidth, unlimited deploys | < 500 MB/mo | 99.5% |
-| GitHub Actions (public repo) | Unlimited minutes | CI/CD deploys | Unlimited |
-
-**Monthly total: $0/month**
-
-**Rationale for notable choices:**
-
-- **Lambda Function URL over API Gateway** — Function URLs add no cost on top of Lambda's always-free tier; API Gateway bills per request after its 12-month free tier expires.
-- **TiDB Cloud Serverless** — MySQL-compatible, generous always-free tier, and HTTPS/TLS access that suits Lambda's connection model (no VPC required).
-- **bcryptjs / mysql2 / serverless-http** — all pure JS, no native build step, so the same zip runs on the Amazon Linux Lambda runtime.
-- **EventBridge schedule over node-cron** — Lambda has no long-lived process; a scheduled event invokes the same function for the daily SLA job.
-
----
-
-## Local Development
-
-```bash
-# 1. Clone and install
-git clone https://github.com/Asciente-rks/service-ticket-system.git
-cd service-ticket-system
-npm install
-
-# 2. Configure environment
-cp .env.example .env        # fill in DB_* and JWT_SECRET
-
-# 3. Sync schema + seed demo data
-npm run db:reset            # sequelize sync + roles + statuses + demo users
-
-# 4. Start dev server (ts-node + nodemon hot reload)
-npm run dev                 # listens on :3000
-
-# 5. Frontend (separate repo)
-git clone https://github.com/Asciente-rks/service-ticket-system-frontend.git
-cd service-ticket-system-frontend
-npm install
-# set VITE_API_URL=http://localhost:3000 in .env.local
-npm run dev                 # Vite HMR at :5173
-```
-
-For a fresh local MySQL instance, set `DB_HOST=127.0.0.1`, create the database, and `npm run db:reset` will handle the rest.
+| **service-ticket-system** (this repo) | Express 4 + Sequelize 6 + TiDB (MySQL) on AWS Lambda | https://github.com/Asciente-rks/service-ticket-system |
+| **service-ticket-system-frontend** | React 19 + Vite 8 + Tailwind 4 (Vercel) | https://github.com/Asciente-rks/service-ticket-system-frontend |
 
 ---
 
