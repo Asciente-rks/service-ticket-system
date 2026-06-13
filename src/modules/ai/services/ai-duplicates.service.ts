@@ -29,6 +29,10 @@ interface CacheEntry {
 }
 
 const CACHE_TTL_MS = 10 * 60_000;
+// "No duplicates" is cached only briefly so the dashboard banner re-evaluates
+// soon and self-heals from any transient/empty result — a real duplicate group
+// won't stay hidden for long. Positive results stay cached longer (quota).
+const EMPTY_CACHE_TTL_MS = 90_000;
 const MAX_TICKETS_ANALYZED = 60;
 
 const cache: Map<string, CacheEntry> = new Map();
@@ -86,9 +90,12 @@ export const detectDuplicates = async (
   const key = `v2:${organizationId}:${collectionId || 'all'}`;
 
   const cached = cache.get(key);
-  if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
-    const groups = await reverifyGroups(cached.groups);
-    return { groups, checkedAt: new Date(cached.at).toISOString(), analyzedCount: -1 };
+  if (cached) {
+    const ttl = cached.groups.length ? CACHE_TTL_MS : EMPTY_CACHE_TTL_MS;
+    if (Date.now() - cached.at < ttl) {
+      const groups = await reverifyGroups(cached.groups);
+      return { groups, checkedAt: new Date(cached.at).toISOString(), analyzedCount: -1 };
+    }
   }
 
   const where: any = {

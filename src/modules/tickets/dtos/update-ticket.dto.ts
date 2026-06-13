@@ -8,6 +8,9 @@ export interface UpdateTicketDto {
   assigneeId?: string;
   /** Full set of assignees. When provided, replaces the ticket's assignee set. */
   assigneeIds?: string[];
+  /** @deprecated single platform/version — kept for backward compatibility. */
   platformVersionId?: string | null;
+  /** Full set of platform/versions. When provided, replaces the ticket's set. */
+  platformVersionIds?: string[];
   jamUrl?: string | null;
 }

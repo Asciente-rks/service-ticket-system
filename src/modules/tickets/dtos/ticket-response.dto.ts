@@ -26,8 +26,11 @@ export interface TicketResponseDto {
   assignee: TicketUser | null;
   /** Full set of assignees (includes the primary). */
   assignees: TicketUser[];
+  /** Primary platform/version (first of the set). Kept for backward compatibility. */
   platformVersionId: string | null;
   platformVersion: TicketPlatformVersion | null;
+  /** Full set of platform/versions the ticket was observed on. */
+  platformVersions: TicketPlatformVersion[];
   reviewedBy: string | null;
   approvalStatus: string | null;
   comment: string | null;

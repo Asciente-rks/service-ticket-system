@@ -61,7 +61,7 @@ export const ensureTicketFeatureSchema = async (): Promise<void> => {
       );
     `);
 
-    // 3) tickets.platform_version_id — which build a ticket was observed on.
+    // 3) tickets.platform_version_id — the PRIMARY build a ticket was observed on.
     if (!(await columnExists('tickets', 'platform_version_id'))) {
       await sequelize.query(`ALTER TABLE tickets ADD COLUMN platform_version_id CHAR(36) NULL;`);
       await sequelize
@@ -70,6 +70,36 @@ export const ensureTicketFeatureSchema = async (): Promise<void> => {
           /* index may already exist */
         });
     }
+
+    // 3b) ticket_platform_versions — full set of builds a ticket was seen on.
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS ticket_platform_versions (
+        id CHAR(36) NOT NULL PRIMARY KEY,
+        ticket_id CHAR(36) NOT NULL,
+        platform_version_id CHAR(36) NOT NULL,
+        organization_id CHAR(36) NOT NULL,
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL,
+        UNIQUE KEY uniq_ticket_platform_version (ticket_id, platform_version_id),
+        INDEX idx_tpv_ticket (ticket_id),
+        INDEX idx_tpv_pv (platform_version_id)
+      );
+    `);
+    // Backfill the set from each ticket's existing single platform_version_id.
+    await sequelize
+      .query(`
+        INSERT INTO ticket_platform_versions (id, ticket_id, platform_version_id, organization_id, createdAt, updatedAt)
+        SELECT UUID(), t.id, t.platform_version_id, t.organization_id, NOW(), NOW()
+        FROM tickets t
+        WHERE t.platform_version_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM ticket_platform_versions tpv
+            WHERE tpv.ticket_id = t.id AND tpv.platform_version_id = t.platform_version_id
+          );
+      `)
+      .catch((err) => {
+        console.warn('[tickets] platform/version backfill skipped:', err?.message || err);
+      });
 
     // 4) One-time backfill: mirror each ticket's existing single assignee into
     //    the new set so historical assignments survive and "assigned to me"

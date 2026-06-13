@@ -45,6 +45,7 @@ const ticketInclude = [
   { model: TicketStatus, as: 'status', attributes: ['id', 'name'] },
   { model: Collection, as: 'collection', attributes: ['id', 'name'] },
   { model: PlatformVersion, as: 'platformVersion', attributes: ['id', 'platform', 'version'] },
+  { model: PlatformVersion, as: 'platformVersions', attributes: ['id', 'platform', 'version'], through: { attributes: [] } },
 ];
 
 const assigneeNames = (t: any): string[] =>
@@ -54,8 +55,15 @@ const assigneeNames = (t: any): string[] =>
       ? [t.assignee.name]
       : [];
 
-const platformVersionLabel = (t: any): string | null =>
-  t.platformVersion ? `${t.platformVersion.platform} · ${t.platformVersion.version}` : null;
+const platformVersionLabel = (t: any): string | null => {
+  const list = Array.isArray(t.platformVersions) && t.platformVersions.length
+    ? t.platformVersions
+    : t.platformVersion
+      ? [t.platformVersion]
+      : [];
+  if (!list.length) return null;
+  return list.map((p: any) => `${p.platform} · ${p.version}`).join(', ');
+};
 
 const toSummary = (t: any) => {
   const names = assigneeNames(t);

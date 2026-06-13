@@ -18,6 +18,13 @@ const assigneeIdsSchema = yup
     .max(20, 'A ticket can have at most 20 assignees')
     .optional();
 
+// Up to 20 platform/versions per ticket, each a valid UUID.
+const platformVersionIdsSchema = yup
+    .array()
+    .of(yup.string().uuid('Each platform/version ID must be a valid UUID').required())
+    .max(20, 'A ticket can have at most 20 platform/versions')
+    .optional();
+
 export const createTicketSchema = yup.object({
     body: yup.object({
         title: yup.string().trim().required('Title is required'),
@@ -26,6 +33,7 @@ export const createTicketSchema = yup.object({
         assigneeId: yup.string().uuid('Assignee ID must be a valid UUID').optional(),
         assigneeIds: assigneeIdsSchema,
         platformVersionId: yup.string().uuid('Platform/version ID must be a valid UUID').nullable().notRequired(),
+        platformVersionIds: platformVersionIdsSchema,
         collectionId: yup.string().uuid('Collection ID must be a valid UUID').optional(),
         jamUrl: jamUrlSchema,
     }),
@@ -40,12 +48,13 @@ export const updateTicketSchema = yup.object({
         assigneeId: yup.string().uuid('Assignee ID must be a valid UUID').nullable(),
         assigneeIds: assigneeIdsSchema,
         platformVersionId: yup.string().uuid('Platform/version ID must be a valid UUID').nullable(),
+        platformVersionIds: platformVersionIdsSchema,
         collectionId: yup.string().uuid('Collection ID must be a valid UUID'),
         jamUrl: jamUrlSchema,
     }).test(
         'at-least-one-field',
-        'At least one field (title, description, statusId, priority, assigneeId, assigneeIds, platformVersionId, collectionId, jamUrl) must be provided for an update.',
-        (value) => value.title !== undefined || value.description !== undefined || value.statusId !== undefined || value.priority !== undefined || value.assigneeId !== undefined || (value as any).assigneeIds !== undefined || (value as any).platformVersionId !== undefined || (value as any).collectionId !== undefined || value.jamUrl !== undefined
+        'At least one field (title, description, statusId, priority, assigneeId, assigneeIds, platformVersionId, platformVersionIds, collectionId, jamUrl) must be provided for an update.',
+        (value) => value.title !== undefined || value.description !== undefined || value.statusId !== undefined || value.priority !== undefined || value.assigneeId !== undefined || (value as any).assigneeIds !== undefined || (value as any).platformVersionId !== undefined || (value as any).platformVersionIds !== undefined || (value as any).collectionId !== undefined || value.jamUrl !== undefined
     ),
     params: yup.object({
         id: yup.string().uuid('Invalid ticket ID format.').required('Ticket ID is required'),

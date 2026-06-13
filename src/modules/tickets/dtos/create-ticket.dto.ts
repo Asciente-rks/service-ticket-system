@@ -7,6 +7,9 @@ export interface CreateTicketDto {
   assigneeId?: string;
   /** Full set of assignees. The first becomes the primary/lifecycle owner. */
   assigneeIds?: string[];
+  /** @deprecated single platform/version — kept for backward compatibility. */
   platformVersionId?: string | null;
+  /** Full set of platform/versions the ticket was observed on. */
+  platformVersionIds?: string[];
   jamUrl?: string | null;
 }

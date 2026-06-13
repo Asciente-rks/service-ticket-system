@@ -154,12 +154,18 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
         collectionId = collection.id;
     }
 
-    const platformVersionId = await resolvePlatformVersionId(organizationId, collectionId, ticketData.platformVersionId);
+    // Platform/versions: accept the new multi (platformVersionIds) and the legacy
+    // single (platformVersionId). The first becomes the primary column value.
+    const requestedPlatformVersions = uniqueIds([...(ticketData.platformVersionIds || []), ticketData.platformVersionId]);
+    for (const pvId of requestedPlatformVersions) {
+        await resolvePlatformVersionId(organizationId, collectionId, pvId);
+    }
+    const primaryPlatformVersion = requestedPlatformVersions[0] || null;
 
     const ticket = await ticketRepository.create({
         organizationId,
         collectionId,
-        platformVersionId,
+        platformVersionId: primaryPlatformVersion,
         title: ticketData.title,
         description: ticketData.description,
         jamUrl: ticketData.jamUrl ?? null,
@@ -172,6 +178,10 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
     // Persist the full assignee set (mirrors the primary + any extras).
     if (requestedAssignees.length) {
         await ticketRepository.setAssignees(ticket.id, organizationId, requestedAssignees, reporterId);
+    }
+    // Persist the full platform/version set.
+    if (requestedPlatformVersions.length) {
+        await ticketRepository.setPlatformVersions(ticket.id, organizationId, requestedPlatformVersions);
     }
 
     const ticketWithAssociations = await ticketRepository.findById(ticket.id);
@@ -330,32 +340,52 @@ export const updateTicket = async (id: string, updates: UpdateTicketDto, userId:
         desiredSet.length !== currentSet.length ||
         desiredSet.some((u) => !currentSet.includes(u));
 
-    // Validate/resolve a platform/version change against the ticket's collection.
-    if (updates.platformVersionId !== undefined) {
-        updatesAny.platformVersionId = await resolvePlatformVersionId(
-            organizationId,
-            effectiveCollectionId,
-            updates.platformVersionId,
-        );
-    } else if (
+    // Resolve the desired platform/version SET (multi) and primary.
+    const collectionChanged =
         updates.collectionId !== undefined &&
-        String(effectiveCollectionId ?? '') !== String((ticket as any).collectionId ?? '')
-    ) {
-        // Moved to a different collection — the old platform/version (which
-        // belonged to the previous collection) no longer applies.
-        updatesAny.platformVersionId = null;
+        String(effectiveCollectionId ?? '') !== String((ticket as any).collectionId ?? '');
+    const currentPVs: string[] = ((ticket as any).platformVersions || []).map((p: any) => String(p.id));
+    const hasExplicitPVs = Array.isArray(updates.platformVersionIds);
+    // Any intent to change the platform/version set?
+    const pvIntent = hasExplicitPVs || updates.platformVersionId !== undefined || collectionChanged;
+
+    let desiredPVs: string[] = [...currentPVs];
+    if (hasExplicitPVs) {
+        desiredPVs = uniqueIds([...(updates.platformVersionIds || []), updates.platformVersionId]);
+    } else if (updates.platformVersionId !== undefined) {
+        // Legacy single value provided — treat as the whole set.
+        desiredPVs = updates.platformVersionId ? [String(updates.platformVersionId)] : [];
     }
+    if (collectionChanged && !hasExplicitPVs && updates.platformVersionId === undefined) {
+        // Moved to a different collection — the old platform/versions (which
+        // belonged to the previous collection) no longer apply.
+        desiredPVs = [];
+    }
+
+    if (pvIntent) {
+        for (const pvId of desiredPVs) {
+            await resolvePlatformVersionId(organizationId, effectiveCollectionId, pvId);
+        }
+        updatesAny.platformVersionId = desiredPVs[0] || null;
+    }
+    const pvSetChanged =
+        pvIntent &&
+        (desiredPVs.length !== currentPVs.length || desiredPVs.some((p) => !currentPVs.includes(p)));
 
     // Build the column-level update (assignedTo mirrors the primary; the
     // assigneeId/assigneeIds inputs are not columns and must not be persisted).
     const updateData: any = { ...updates };
     delete updateData.assigneeId;
     delete updateData.assigneeIds;
+    delete updateData.platformVersionIds;
     updateData.assignedTo = primary;
 
     await ticketRepository.update(id, updateData);
     if (assigneeSetChanged) {
         await ticketRepository.setAssignees(id, organizationId, desiredSet, userId);
+    }
+    if (pvSetChanged) {
+        await ticketRepository.setPlatformVersions(id, organizationId, desiredPVs);
     }
 
     const updatedTicket = await ticketRepository.findById(id);
@@ -449,14 +479,17 @@ const toTicketResponseDto = (ticket: any): TicketResponseDto => {
         ? { id: ticket.assignee.id, name: ticket.assignee.name, email: ticket.assignee.email }
         : assignees[0] || null;
 
-    const pv = ticket.platformVersion
-        ? {
-              id: ticket.platformVersion.id,
-              platform: ticket.platformVersion.platform,
-              version: ticket.platformVersion.version,
-              label: `${ticket.platformVersion.platform} · ${ticket.platformVersion.version}`,
-          }
-        : null;
+    const toPvDto = (p: any) => ({
+        id: p.id,
+        platform: p.platform,
+        version: p.version,
+        label: `${p.platform} · ${p.version}`,
+    });
+    const platformVersions = Array.isArray(ticket.platformVersions)
+        ? ticket.platformVersions.map(toPvDto)
+        : [];
+    // Primary platform/version (column), falling back to the first of the set.
+    const pv = ticket.platformVersion ? toPvDto(ticket.platformVersion) : platformVersions[0] || null;
 
     return {
         id: ticket.id,
@@ -476,6 +509,7 @@ const toTicketResponseDto = (ticket: any): TicketResponseDto => {
         assignees,
         platformVersionId: ticket.platformVersionId ?? ticket.platformVersion?.id ?? null,
         platformVersion: pv,
+        platformVersions,
         reviewedBy,
         approvalStatus,
         comment: approvalComment,

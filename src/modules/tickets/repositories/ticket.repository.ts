@@ -1,6 +1,7 @@
 import { Op } from 'sequelize';
 import { Ticket } from '../models/ticket.model';
 import { TicketAssignee } from '../models/ticket-assignee.model';
+import { TicketPlatformVersion } from '../models/ticket-platform-version.model';
 import { User } from '../../users/models/user.model';
 import { TicketStatus } from '../models/ticket-status.model';
 import { Approval } from '../models/approval.model';
@@ -20,6 +21,8 @@ interface CreateTicketParams {
     jamUrl?: string | null;
 }
 
+const platformVersionAttrs = ['id', 'platform', 'version'];
+
 export const create = async (ticketData: CreateTicketParams) => {
     return await Ticket.create(ticketData as any);
 };
@@ -30,7 +33,8 @@ const fullInclude = [
     { model: User, as: 'assignees', attributes: ['id', 'name', 'email'], through: { attributes: [] } },
     { model: TicketStatus, as: 'status', attributes: ['id', 'name'] },
     { model: Collection, as: 'collection', attributes: ['id', 'name'] },
-    { model: PlatformVersion, as: 'platformVersion', attributes: ['id', 'platform', 'version'] },
+    { model: PlatformVersion, as: 'platformVersion', attributes: platformVersionAttrs },
+    { model: PlatformVersion, as: 'platformVersions', attributes: platformVersionAttrs, through: { attributes: [] } },
     {
         model: Approval,
         as: 'approvals',
@@ -119,4 +123,32 @@ export const addAssignee = async (
         where: { ticketId, userId },
         defaults: { ticketId, userId, organizationId, createdBy: actorId } as any,
     });
+};
+
+/** Replace a ticket's platform/version set with exactly `platformVersionIds` (deduped). */
+export const setPlatformVersions = async (
+    ticketId: string,
+    organizationId: string,
+    platformVersionIds: string[],
+): Promise<void> => {
+    const desired = Array.from(new Set(platformVersionIds.map((p) => String(p)))).filter(Boolean);
+
+    const existing = await TicketPlatformVersion.findAll({ where: { ticketId } });
+    const existingIds = new Set(existing.map((e: any) => String(e.platformVersionId)));
+    const desiredSet = new Set(desired);
+
+    const toRemove = existing.filter((e: any) => !desiredSet.has(String(e.platformVersionId)));
+    const toAdd = desired.filter((p) => !existingIds.has(p));
+
+    if (toRemove.length) {
+        await TicketPlatformVersion.destroy({
+            where: { ticketId, platformVersionId: { [Op.in]: toRemove.map((e: any) => String(e.platformVersionId)) } },
+        });
+    }
+    if (toAdd.length) {
+        await TicketPlatformVersion.bulkCreate(
+            toAdd.map((platformVersionId) => ({ ticketId, platformVersionId, organizationId })),
+            { ignoreDuplicates: true },
+        );
+    }
 };

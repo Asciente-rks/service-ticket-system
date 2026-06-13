@@ -12,6 +12,7 @@ import { AiMessage } from '../modules/ai/models/ai-message.model';
 import { Collection } from '../modules/collections/models/collection.model';
 import { PlatformVersion } from '../modules/collections/models/platform-version.model';
 import { TicketAssignee } from '../modules/tickets/models/ticket-assignee.model';
+import { TicketPlatformVersion } from '../modules/tickets/models/ticket-platform-version.model';
 import { Notification } from '../modules/notifications/models/notification.model';
 import { NotificationSettings } from '../modules/users/models/notification-settings.model';
 import { Organization } from '../modules/organizations/models/organization.model';
@@ -68,11 +69,25 @@ export const defineAssociations = () => {
     TicketAssignee.belongsTo(Ticket, { foreignKey: 'ticketId', as: 'ticket' });
     TicketAssignee.belongsTo(User, { foreignKey: 'userId', as: 'user' });
 
-    // Per-collection platform/version catalog; tickets reference one entry.
+    // Per-collection platform/version catalog; tickets reference a primary entry
+    // and (many-to-many) a full set of platform/versions they were observed on.
     Collection.hasMany(PlatformVersion, { foreignKey: 'collectionId', as: 'platformVersions' });
     PlatformVersion.belongsTo(Collection, { foreignKey: 'collectionId', as: 'collection' });
     PlatformVersion.hasMany(Ticket, { foreignKey: 'platformVersionId', as: 'tickets' });
     Ticket.belongsTo(PlatformVersion, { foreignKey: 'platformVersionId', as: 'platformVersion' });
+
+    Ticket.belongsToMany(PlatformVersion, {
+      through: TicketPlatformVersion,
+      as: 'platformVersions',
+      foreignKey: 'ticketId',
+      otherKey: 'platformVersionId',
+    });
+    PlatformVersion.belongsToMany(Ticket, {
+      through: TicketPlatformVersion,
+      as: 'taggedTickets',
+      foreignKey: 'platformVersionId',
+      otherKey: 'ticketId',
+    });
 
     TicketStatus.hasMany(Ticket, { foreignKey: 'statusId', as: 'tickets' });
     Ticket.belongsTo(TicketStatus, { foreignKey: 'statusId', as: 'status' });

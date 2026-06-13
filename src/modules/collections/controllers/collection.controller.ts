@@ -6,6 +6,7 @@ export const listCollections = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
     const data = await collectionService.listCollections(req.user.organizationId!, req.user.id);
+    res.set('Cache-Control', 'no-store');
     res.status(200).json(data);
   } catch (error: any) {
     res.status(error.statusCode || 500).json({ message: error.message || 'Could not load collections.' });

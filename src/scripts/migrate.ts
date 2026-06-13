@@ -382,6 +382,44 @@ const run = async () => {
     console.warn('Could not backfill ticket_assignees:', err.message);
   }
 
+  // 23) ticket_platform_versions — full set of builds a ticket was observed on.
+  if (!(await tableExists('ticket_platform_versions'))) {
+    console.log('Creating table: ticket_platform_versions');
+    await sequelize.query(`
+      CREATE TABLE ticket_platform_versions (
+        id CHAR(36) NOT NULL PRIMARY KEY,
+        ticket_id CHAR(36) NOT NULL,
+        platform_version_id CHAR(36) NOT NULL,
+        organization_id CHAR(36) NOT NULL,
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL,
+        UNIQUE KEY uniq_ticket_platform_version (ticket_id, platform_version_id),
+        INDEX idx_tpv_ticket (ticket_id),
+        INDEX idx_tpv_pv (platform_version_id),
+        CONSTRAINT fk_tpv_ticket FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
+      );
+    `);
+  } else {
+    console.log('Table ticket_platform_versions already exists — skipping.');
+  }
+
+  // 24) Backfill ticket_platform_versions from tickets.platform_version_id.
+  console.log('Backfilling ticket_platform_versions from tickets.platform_version_id');
+  try {
+    await sequelize.query(`
+      INSERT INTO ticket_platform_versions (id, ticket_id, platform_version_id, organization_id, createdAt, updatedAt)
+      SELECT UUID(), t.id, t.platform_version_id, t.organization_id, NOW(), NOW()
+      FROM tickets t
+      WHERE t.platform_version_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM ticket_platform_versions tpv
+          WHERE tpv.ticket_id = t.id AND tpv.platform_version_id = t.platform_version_id
+        );
+    `);
+  } catch (err: any) {
+    console.warn('Could not backfill ticket_platform_versions:', err.message);
+  }
+
   console.log('--- Migration complete ---');
   await sequelize.close();
 };
