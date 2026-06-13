@@ -138,6 +138,7 @@ const callProvider = async (
   tools?: ToolDefinition[],
   maxTokens = 1024,
   jsonMode = false,
+  temperature = 0.3,
 ): Promise<ChatCompletionResult> => {
   const apiKey = apiKeyFor(candidate.provider);
   if (!apiKey) {
@@ -151,7 +152,7 @@ const callProvider = async (
   const payload: Record<string, any> = {
     model: candidate.model,
     messages,
-    temperature: 0.3,
+    temperature,
     max_tokens: maxTokens,
   };
   if (tools && tools.length > 0) {
@@ -231,6 +232,7 @@ export const chatCompletion = async (
   tools?: ToolDefinition[],
   maxTokens?: number,
   jsonMode = false,
+  temperature = 0.3,
 ): Promise<ChatCompletionResult> => {
   const available = CANDIDATES.filter((c) => !!apiKeyFor(c.provider));
 
@@ -255,7 +257,7 @@ export const chatCompletion = async (
 
   for (const candidate of order) {
     try {
-      const result = await callProvider(candidate, messages, tools, maxTokens, jsonMode);
+      const result = await callProvider(candidate, messages, tools, maxTokens, jsonMode, temperature);
       cooldowns.delete(keyOf(candidate));
       return result;
     } catch (error: any) {

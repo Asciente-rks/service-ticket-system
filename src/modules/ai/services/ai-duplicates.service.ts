@@ -141,6 +141,7 @@ ${JSON.stringify(compact)}`;
     undefined,
     800,
     true, // JSON mode
+    0, // deterministic: the dashboard banner and the "Verify with AI" chat must agree
   );
 
   const parsed = parseModelJson(result.content || '');
