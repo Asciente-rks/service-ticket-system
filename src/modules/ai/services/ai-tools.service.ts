@@ -6,6 +6,8 @@ import { Comment } from '../../tickets/models/comment.model';
 import { TicketEvent } from '../../tickets/models/ticket-event.model';
 import { Approval } from '../../tickets/models/approval.model';
 import { Collection } from '../../collections/models/collection.model';
+import { PlatformVersion } from '../../collections/models/platform-version.model';
+import { findTicketIdsAssignedToUser } from '../../tickets/repositories/ticket.repository';
 import { ToolDefinition } from './ai-provider.service';
 import { formatPhDateTime } from './ph-time.util';
 import { detectDuplicates, DuplicateGroup } from './ai-duplicates.service';
@@ -39,22 +41,40 @@ export interface ToolContext {
 const ticketInclude = [
   { model: User, as: 'reporter', attributes: ['id', 'name', 'email'] },
   { model: User, as: 'assignee', attributes: ['id', 'name', 'email'] },
+  { model: User, as: 'assignees', attributes: ['id', 'name', 'email'], through: { attributes: [] } },
   { model: TicketStatus, as: 'status', attributes: ['id', 'name'] },
   { model: Collection, as: 'collection', attributes: ['id', 'name'] },
+  { model: PlatformVersion, as: 'platformVersion', attributes: ['id', 'platform', 'version'] },
 ];
 
-const toSummary = (t: any) => ({
-  id: t.id,
-  title: t.title,
-  status: t.status?.name || 'Unknown',
-  priority: t.priority || 'None',
-  collection: t.collection?.name || null,
-  reporter: t.reporter?.name || 'Unknown',
-  assignee: t.assignee?.name || 'Unassigned',
-  descriptionPreview: t.description ? String(t.description).slice(0, 200) : null,
-  createdAt: formatPhDateTime(t.createdAt),
-  updatedAt: formatPhDateTime(t.updatedAt),
-});
+const assigneeNames = (t: any): string[] =>
+  Array.isArray(t.assignees) && t.assignees.length
+    ? t.assignees.map((u: any) => u.name).filter(Boolean)
+    : t.assignee?.name
+      ? [t.assignee.name]
+      : [];
+
+const platformVersionLabel = (t: any): string | null =>
+  t.platformVersion ? `${t.platformVersion.platform} · ${t.platformVersion.version}` : null;
+
+const toSummary = (t: any) => {
+  const names = assigneeNames(t);
+  return {
+    id: t.id,
+    title: t.title,
+    status: t.status?.name || 'Unknown',
+    priority: t.priority || 'None',
+    collection: t.collection?.name || null,
+    platformVersion: platformVersionLabel(t),
+    reporter: t.reporter?.name || 'Unknown',
+    // Primary assignee plus the full roster (a ticket can have several).
+    assignee: names[0] || 'Unassigned',
+    assignees: names.length ? names : ['Unassigned'],
+    descriptionPreview: t.description ? String(t.description).slice(0, 200) : null,
+    createdAt: formatPhDateTime(t.createdAt),
+    updatedAt: formatPhDateTime(t.updatedAt),
+  };
+};
 
 const toTicketRef = (t: any) => ({
   id: t.id,
@@ -70,7 +90,7 @@ export const toolDefinitions: ToolDefinition[] = [
     function: {
       name: 'query_tickets',
       description:
-        "Search and list tickets in the user's organization. Use for questions like 'how many tickets are assigned to me', 'show open high priority tickets', 'tickets reported by me', 'find tickets about login'. Returns matching tickets — the 'assignee' field is always the CURRENT assignee. IMPORTANT: use the FEWEST filters that answer the question; for 'how many are assigned to me' pass ONLY assignedToMe=true. Never combine assignedToMe and reportedByMe unless the user explicitly asks for tickets that are both.",
+        "Search and list tickets in the user's organization. Use for questions like 'how many tickets are assigned to me', 'show open high priority tickets', 'tickets reported by me', 'find tickets about login'. Returns matching tickets — 'assignee' is the PRIMARY/current owner and 'assignees' is the full set (a ticket may have several). assignedToMe matches tickets where the user is ANY assignee. 'platformVersion' is the build it was reported on, if set. IMPORTANT: use the FEWEST filters that answer the question; for 'how many are assigned to me' pass ONLY assignedToMe=true. Never combine assignedToMe and reportedByMe unless the user explicitly asks for tickets that are both.",
       parameters: {
         type: 'object',
         properties: {
@@ -216,8 +236,21 @@ export const toolDefinitions: ToolDefinition[] = [
 const queryTickets = async (ctx: ToolContext, args: any) => {
   const where: any = { organizationId: ctx.organizationId };
   const appliedFilters: string[] = [];
+  // OR-groups are collected here and ANDed together, so multiple OR-based
+  // filters (assignedToMe membership + free-text search) can't clobber each other.
+  const andConditions: any[] = [];
 
-  if (asBool(args?.assignedToMe)) { where.assignedTo = ctx.userId; appliedFilters.push('assignedToMe'); }
+  if (asBool(args?.assignedToMe)) {
+    // "Assigned to me" = the primary owner OR any member of the assignee set.
+    const assignedIds = await findTicketIdsAssignedToUser(ctx.organizationId, ctx.userId);
+    andConditions.push({
+      [Op.or]: [
+        { assignedTo: ctx.userId },
+        ...(assignedIds.length ? [{ id: { [Op.in]: assignedIds } }] : []),
+      ],
+    });
+    appliedFilters.push('assignedToMe');
+  }
   if (asBool(args?.reportedByMe)) { where.reportedBy = ctx.userId; appliedFilters.push('reportedByMe'); }
 
   if (args?.priority && typeof args.priority === 'string') {
@@ -228,7 +261,7 @@ const queryTickets = async (ctx: ToolContext, args: any) => {
 
   if (args?.search && typeof args.search === 'string' && args.search.trim()) {
     const q = `%${args.search.trim()}%`;
-    where[Op.or as any] = [{ title: { [Op.like]: q } }, { description: { [Op.like]: q } }];
+    andConditions.push({ [Op.or]: [{ title: { [Op.like]: q } }, { description: { [Op.like]: q } }] });
     appliedFilters.push(`search="${args.search.trim()}"`);
   }
 
@@ -249,6 +282,8 @@ const queryTickets = async (ctx: ToolContext, args: any) => {
     if (collection) { where.collectionId = collection.id; appliedFilters.push(`collection=${collection.name}`); }
     else collectionFilterFailed = args.collection;
   }
+
+  if (andConditions.length) where[Op.and as any] = andConditions;
 
   const limit = Math.min(Math.max(Number(args?.limit) || 20, 1), 50);
 
@@ -537,11 +572,15 @@ const getTicketDetails = async (ctx: ToolContext, args: any) => {
 };
 
 const getTicketStats = async (ctx: ToolContext) => {
-  const tickets: any[] = await Ticket.findAll({
-    where: { organizationId: ctx.organizationId },
-    include: [{ model: TicketStatus, as: 'status', attributes: ['name'] }],
-    attributes: ['id', 'priority', 'assignedTo', 'reportedBy', 'statusId'],
-  });
+  const [tickets, assignedIds] = await Promise.all([
+    Ticket.findAll({
+      where: { organizationId: ctx.organizationId },
+      include: [{ model: TicketStatus, as: 'status', attributes: ['name'] }],
+      attributes: ['id', 'priority', 'assignedTo', 'reportedBy', 'statusId'],
+    }) as Promise<any[]>,
+    findTicketIdsAssignedToUser(ctx.organizationId, ctx.userId),
+  ]);
+  const assignedIdSet = new Set(assignedIds.map((x) => String(x)));
 
   const byStatus: Record<string, number> = {};
   const byPriority: Record<string, number> = {};
@@ -554,7 +593,8 @@ const getTicketStats = async (ctx: ToolContext) => {
     byStatus[s] = (byStatus[s] || 0) + 1;
     const p = t.priority || 'None';
     byPriority[p] = (byPriority[p] || 0) + 1;
-    if (String(t.assignedTo) === String(ctx.userId)) assignedToMe += 1;
+    // Assigned to me = primary owner OR a member of the assignee set.
+    if (String(t.assignedTo) === String(ctx.userId) || assignedIdSet.has(String(t.id))) assignedToMe += 1;
     if (String(t.reportedBy) === String(ctx.userId)) reportedByMe += 1;
     if (!t.assignedTo) unassigned += 1;
   }

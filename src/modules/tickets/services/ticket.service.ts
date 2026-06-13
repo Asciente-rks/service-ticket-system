@@ -13,8 +13,116 @@ import * as ticketEventRepository from '../repositories/ticket-event.repository'
 import { ROLES } from '../../../config/roles';
 import { STATUSES } from '../../../config/statuses';
 import * as collectionService from '../../collections/services/collection.service';
+import { PlatformVersion } from '../../collections/models/platform-version.model';
 
 const VALID_PRIORITIES = ['Low', 'Medium', 'High'];
+
+const ROLE = {
+    superAdmin: ROLES.SUPER_ADMIN.toLowerCase(),
+    admin: ROLES.ADMIN.toLowerCase(),
+    dev: ROLES.DEVELOPER.toLowerCase(),
+    tester: ROLES.TESTER.toLowerCase(),
+};
+
+/** Dedupe a list of ids, dropping falsy values, preserving order. */
+const uniqueIds = (ids: (string | null | undefined)[]): string[] =>
+    Array.from(new Set(ids.filter((x): x is string => !!x).map((x) => String(x))));
+
+/**
+ * Validate that `assigneeId` may be assigned by `actor` under the tenant and
+ * role rules. Throws a 400-style Error on violation. Assigning to oneself is
+ * always allowed; SuperAdmins (as actor) may assign to anyone except other
+ * SuperAdmins.
+ */
+const assertAssignable = async (
+    assigneeId: string,
+    actorId: string,
+    actorRoleId: string,
+    organizationId: string,
+): Promise<void> => {
+    const assignee = await userRepository.findBasicById(assigneeId);
+    if (!assignee) {
+        throw new Error('Assignee user not found.');
+    }
+    if (String((assignee as any).organizationId) !== String(organizationId)) {
+        throw new Error('Assignee must belong to your organization.');
+    }
+
+    // Assigning to yourself is always permitted.
+    if (String(assignee.id) === String(actorId)) return;
+
+    const assigneeRole = (assignee.roleId || '').toLowerCase();
+    const actorRole = (actorRoleId || '').toLowerCase();
+
+    if (assigneeRole === ROLE.superAdmin) {
+        throw new Error('Tickets cannot be assigned to SuperAdmins.');
+    }
+
+    if (actorRole === ROLE.admin) {
+        if (![ROLE.dev, ROLE.tester].includes(assigneeRole)) {
+            throw new Error('Admins can only assign tickets to Developers and Testers.');
+        }
+    } else if (actorRole === ROLE.tester) {
+        if (![ROLE.dev, ROLE.tester].includes(assigneeRole)) {
+            throw new Error('Testers can only assign tickets to Developers and fellow Testers.');
+        }
+    } else if (actorRole === ROLE.dev) {
+        if (![ROLE.dev, ROLE.tester].includes(assigneeRole)) {
+            throw new Error('Developers can only assign tickets to fellow Developers and Testers.');
+        }
+    }
+    // SuperAdmin actor: no further restriction.
+};
+
+/**
+ * Resolve and validate an optional platform/version selection: it must exist,
+ * belong to the org, and (when known) belong to the ticket's collection.
+ */
+const resolvePlatformVersionId = async (
+    organizationId: string,
+    collectionId: string | null,
+    platformVersionId: string | null | undefined,
+): Promise<string | null> => {
+    if (!platformVersionId) return null;
+    const pv = await PlatformVersion.findByPk(platformVersionId);
+    if (!pv || String(pv.organizationId) !== String(organizationId)) {
+        const err: any = new Error('Selected platform/version was not found.');
+        err.statusCode = 400;
+        throw err;
+    }
+    if (collectionId && String(pv.collectionId) !== String(collectionId)) {
+        const err: any = new Error('Selected platform/version does not belong to this collection.');
+        err.statusCode = 400;
+        throw err;
+    }
+    return pv.id;
+};
+
+/** Notify a set of assignees that they were put on a ticket (best-effort). */
+const notifyAssigned = async (
+    userIds: string[],
+    ticketId: string,
+    ticketTitle: string,
+    organizationId: string,
+    excludeUserId?: string,
+) => {
+    for (const userId of userIds) {
+        if (excludeUserId && String(userId) === String(excludeUserId)) continue;
+        try {
+            const settings = await notificationSettingService.getNotificationSettings(userId);
+            if (settings.notifyAssignedTicket) {
+                await notificationService.createNotification({
+                    userId,
+                    ticketId,
+                    organizationId,
+                    message: `You have been assigned a ticket: ${ticketTitle}`,
+                });
+            }
+        } catch (err) {
+            console.error('Assignment notification failed:', err);
+        }
+    }
+};
 
 export const createTicket = async (ticketData: CreateTicketDto, reporterId: string, reporterRoleId: string, organizationId: string): Promise<TicketResponseDto> => {
     if (!VALID_PRIORITIES.includes(ticketData.priority)) {
@@ -27,44 +135,13 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
         throw new Error('Default ticket status "Open" not found. Please run the seed script.');
     }
 
-    if (ticketData.assigneeId) {
-        const assignee = await userRepository.findBasicById(ticketData.assigneeId);
-
-        if (!assignee) {
-            throw new Error('Assignee user not found.');
-        }
-
-        if (String((assignee as any).organizationId) !== String(organizationId)) {
-            throw new Error('Assignee must belong to your organization.');
-        }
-
-        const assigneeRoleId = (assignee.roleId || '').toLowerCase();
-        const creatorRoleId = (reporterRoleId || '').toLowerCase();
-        const superAdminRole = ROLES.SUPER_ADMIN.toLowerCase();
-        const adminRole = ROLES.ADMIN.toLowerCase();
-        const devRole = ROLES.DEVELOPER.toLowerCase();
-        const testerRole = ROLES.TESTER.toLowerCase();
-
-        if (assignee.id !== reporterId) {
-            if (assigneeRoleId === superAdminRole) {
-                throw new Error('Tickets cannot be assigned to SuperAdmins.');
-            }
-
-            if (creatorRoleId === adminRole) {
-                if (![devRole, testerRole].includes(assigneeRoleId)) {
-                    throw new Error('Admins can only assign tickets to Developers and Testers.');
-                }
-            } else if (creatorRoleId === testerRole) {
-                if (![devRole, testerRole].includes(assigneeRoleId)) {
-                    throw new Error('Testers can only assign tickets to Developers and fellow Testers.');
-                }
-            } else if (creatorRoleId === devRole) {
-                if (![devRole, testerRole].includes(assigneeRoleId)) {
-                    throw new Error('Developers can only assign tickets to fellow Developers and Testers.');
-                }
-            }
-        }
+    // Accept both the legacy single assigneeId and the new assigneeIds[]. The
+    // first entry becomes the primary/lifecycle owner (tickets.assigned_to).
+    const requestedAssignees = uniqueIds([...(ticketData.assigneeIds || []), ticketData.assigneeId]);
+    for (const assigneeId of requestedAssignees) {
+        await assertAssignable(assigneeId, reporterId, reporterRoleId, organizationId);
     }
+    const primaryAssignee = requestedAssignees[0] || null;
 
     // Every ticket lives in a collection: validate the requested one belongs
     // to this org, or fall back to the org's default collection.
@@ -77,17 +154,25 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
         collectionId = collection.id;
     }
 
+    const platformVersionId = await resolvePlatformVersionId(organizationId, collectionId, ticketData.platformVersionId);
+
     const ticket = await ticketRepository.create({
         organizationId,
         collectionId,
+        platformVersionId,
         title: ticketData.title,
         description: ticketData.description,
         jamUrl: ticketData.jamUrl ?? null,
         priority: ticketData.priority,
         reportedBy: reporterId,
-        assignedTo: ticketData.assigneeId || null,
+        assignedTo: primaryAssignee,
         statusId: STATUSES.OPEN
     });
+
+    // Persist the full assignee set (mirrors the primary + any extras).
+    if (requestedAssignees.length) {
+        await ticketRepository.setAssignees(ticket.id, organizationId, requestedAssignees, reporterId);
+    }
 
     const ticketWithAssociations = await ticketRepository.findById(ticket.id);
     if (!ticketWithAssociations) throw new Error('Error fetching created ticket');
@@ -96,7 +181,7 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
 
     // Timeline: ticket reported (+ initial assignment if any).
     await ticketEventService.logEvent({ ticketId: ticket.id, organizationId, actorId: reporterId, type: 'reported' });
-    if (ticket.assignedTo) {
+    if (primaryAssignee) {
         await ticketEventService.logEvent({
             ticketId: ticket.id,
             organizationId,
@@ -106,17 +191,9 @@ export const createTicket = async (ticketData: CreateTicketDto, reporterId: stri
         });
     }
 
-    if (ticket.assignedTo) {
-        const settings = await notificationSettingService.getNotificationSettings(ticket.assignedTo);
-        if (settings.notifyAssignedTicket) {
-            notificationService.createNotification({
-                userId: ticket.assignedTo,
-                ticketId: ticket.id,
-                organizationId,
-                message: `You have been assigned a new ticket: ${ticket.title}`
-            }).catch(err => console.error("Notification failed:", err));
-        }
-    }
+    // Notify every assignee (except the reporter themselves).
+    await notifyAssigned(requestedAssignees, ticket.id, ticket.title, organizationId, reporterId);
+
     return createdTicket;
 }
 
@@ -159,10 +236,11 @@ export const deleteTicket = async (id: string, organizationId: string, userId: s
     }
 
     // Remove dependent rows first so nothing is orphaned (notifications, comments,
-    // timeline events). Notifications have no DB cascade, so always clean explicitly.
+    // timeline events, assignee links). Notifications have no DB cascade, so always clean explicitly.
     await notificationRepository.deleteByTicketId(id);
     await commentRepository.deleteByTicket(id);
     await ticketEventRepository.deleteByTicket(id);
+    await ticketRepository.setAssignees(id, organizationId, []); // clear assignee links
 
     await ticketRepository.remove(id);
     return true;
@@ -178,89 +256,113 @@ export const updateTicket = async (id: string, updates: UpdateTicketDto, userId:
     }
 
     // Moving a ticket between collections: target must belong to this org.
+    let effectiveCollectionId: string | null = (ticket as any).collectionId ?? null;
     if (updates.collectionId !== undefined) {
         if (updates.collectionId) {
-            await collectionService.assertCollectionInOrg(organizationId, updates.collectionId);
+            const target = await collectionService.assertCollectionInOrg(organizationId, updates.collectionId);
+            effectiveCollectionId = target.id;
         } else {
             delete (updates as any).collectionId; // never detach a ticket from all collections
         }
     }
 
     const updatesAny = updates as any;
+
+    // Status transitions drive an automatic primary-owner change:
+    //   In Progress  -> the developer who picked it up (the actor)
+    //   Ready for QA -> back to the reporter for verification
+    // This owner is added to the assignee set without removing the others.
+    let statusDrivenPrimary: string | null = null;
     if (updatesAny.status) {
         const statusEntity = await ticketStatusRepository.findByName(updatesAny.status);
         if (!statusEntity) {
             throw new Error(`Status "${updatesAny.status}" not found`);
         }
-        
+
         if (statusEntity.name === 'In Progress') {
-             updates.assigneeId = userId;
+            statusDrivenPrimary = userId;
         } else if (statusEntity.name === 'Ready for QA') {
-            updates.assigneeId = ticket.reportedBy;
+            statusDrivenPrimary = ticket.reportedBy;
         }
 
         updates.statusId = statusEntity.id;
         delete updatesAny.status;
     }
 
-    if (updates.assigneeId && ticket.assignedTo !== updates.assigneeId) {
-        const newAssigneeId = updates.assigneeId;
-        if (newAssigneeId) {
-            const assignee = await userRepository.findBasicById(newAssigneeId);
-            if (!assignee) {
-                throw new Error('Assignee user not found');
-            }
+    // Resolve the desired assignee SET and PRIMARY.
+    const currentSet: string[] = ((ticket as any).assignees || []).map((u: any) => String(u.id));
+    const hasExplicitSet = Array.isArray(updates.assigneeIds);
 
-            if (String((assignee as any).organizationId) !== String(organizationId)) {
-                throw new Error('Assignee must belong to your organization.');
-            }
+    // Base set: explicit list when provided, otherwise the current roster.
+    let desiredSet = hasExplicitSet
+        ? uniqueIds([...(updates.assigneeIds || []), updates.assigneeId])
+        : [...currentSet];
 
-            const assigneeRoleId = (assignee.roleId || '').toLowerCase();
-            const actorRoleId = (roleId || '').toLowerCase();
-            const superAdminRole = ROLES.SUPER_ADMIN.toLowerCase();
-            const adminRole = ROLES.ADMIN.toLowerCase();
-            const devRole = ROLES.DEVELOPER.toLowerCase();
-            const testerRole = ROLES.TESTER.toLowerCase();
-
-            if (newAssigneeId !== userId) {
-                if (assigneeRoleId === superAdminRole) {
-                    throw new Error('Tickets cannot be assigned to SuperAdmins.');
-                }
-
-                if (actorRoleId === adminRole) {
-                    if (![devRole, testerRole].includes(assigneeRoleId)) {
-                        throw new Error('Admins can only assign tickets to Developers and Testers.');
-                    }
-                } else if (actorRoleId === testerRole) {
-                    if (![devRole, testerRole].includes(assigneeRoleId)) {
-                        throw new Error('Testers can only assign tickets to Developers and fellow Testers.');
-                    }
-                } else if (actorRoleId === devRole) {
-                    if (![devRole, testerRole].includes(assigneeRoleId)) {
-                        throw new Error('Developers can only assign tickets to fellow Developers and Testers.');
-                    }
-                }
-            }
-            const settings = await notificationSettingService.getNotificationSettings(newAssigneeId);
-            if (settings.notifyAssignedTicket) {
-                await notificationService.createNotification({
-                    userId: newAssigneeId,
-                    ticketId: ticket.id,
-                    organizationId,
-                    message: `You have been assigned a ticket: ${ticket.title}`
-                });
-            }
-        }
+    // Validate any user-chosen assignees that are newly added (status-driven
+    // owners are automatic lifecycle changes and skip the role gate).
+    const additions = desiredSet.filter((u) => !currentSet.includes(u));
+    for (const assigneeId of additions) {
+        await assertAssignable(assigneeId, userId, roleId, organizationId);
     }
 
+    // Determine the primary/lifecycle owner.
+    let primary: string | null;
+    if (statusDrivenPrimary) {
+        primary = statusDrivenPrimary;
+    } else if (hasExplicitSet) {
+        primary = desiredSet[0] || null;
+    } else if (updates.assigneeId !== undefined) {
+        primary = updates.assigneeId || null;
+        if (primary) await assertAssignable(primary, userId, roleId, organizationId);
+    } else {
+        primary = (ticket as any).assignedTo ? String((ticket as any).assignedTo) : null;
+    }
+
+    // The primary must be part of the set (added at the front, no duplicates).
+    if (primary) {
+        desiredSet = uniqueIds([primary, ...desiredSet]);
+    }
+
+    const assigneeSetChanged =
+        hasExplicitSet ||
+        !!statusDrivenPrimary ||
+        updates.assigneeId !== undefined ||
+        desiredSet.length !== currentSet.length ||
+        desiredSet.some((u) => !currentSet.includes(u));
+
+    // Validate/resolve a platform/version change against the ticket's collection.
+    if (updates.platformVersionId !== undefined) {
+        updatesAny.platformVersionId = await resolvePlatformVersionId(
+            organizationId,
+            effectiveCollectionId,
+            updates.platformVersionId,
+        );
+    } else if (
+        updates.collectionId !== undefined &&
+        String(effectiveCollectionId ?? '') !== String((ticket as any).collectionId ?? '')
+    ) {
+        // Moved to a different collection — the old platform/version (which
+        // belonged to the previous collection) no longer applies.
+        updatesAny.platformVersionId = null;
+    }
+
+    // Build the column-level update (assignedTo mirrors the primary; the
+    // assigneeId/assigneeIds inputs are not columns and must not be persisted).
     const updateData: any = { ...updates };
-    if (updateData.assigneeId !== undefined) {
-        updateData.assignedTo = updateData.assigneeId;
-        delete updateData.assigneeId;
-    }
+    delete updateData.assigneeId;
+    delete updateData.assigneeIds;
+    updateData.assignedTo = primary;
 
     await ticketRepository.update(id, updateData);
+    if (assigneeSetChanged) {
+        await ticketRepository.setAssignees(id, organizationId, desiredSet, userId);
+    }
+
     const updatedTicket = await ticketRepository.findById(id);
+
+    // Notify newly added assignees (excluding the actor).
+    const newlyAdded = desiredSet.filter((u) => !currentSet.includes(u));
+    await notifyAssigned(newlyAdded, id, ticket.title, organizationId, userId);
 
     // Timeline: log assignment/reassignment and status transitions based on the
     // actual before/after saved values (catches status-driven auto-reassignments).
@@ -304,11 +406,14 @@ export const updateTicket = async (id: string, updates: UpdateTicketDto, userId:
             }
         }
 
-        if (ticket.assignedTo && ticket.assignedTo !== userId) {
-            const settings = await notificationSettingService.getNotificationSettings(ticket.assignedTo);
+        // Notify everyone currently assigned (the full roster) about the status change.
+        const notifyTargets = uniqueIds(((updatedTicket as any).assignees || []).map((u: any) => String(u.id)));
+        for (const target of notifyTargets) {
+            if (String(target) === String(userId)) continue;
+            const settings = await notificationSettingService.getNotificationSettings(target);
             if (settings.notifyAssignedTicket) {
                 await notificationService.createNotification({
-                    userId: ticket.assignedTo,
+                    userId: target,
                     ticketId: ticket.id,
                     organizationId,
                     message: `The status of ticket "${ticket.title}" assigned to you has been updated to ${statusName}.`
@@ -326,13 +431,32 @@ const toTicketResponseDto = (ticket: any): TicketResponseDto => {
 
     if (ticket.approvals && ticket.approvals.length > 0) {
         const latestApproval = ticket.approvals.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-        
+
         if (latestApproval) {
             reviewedBy = latestApproval.approver ? latestApproval.approver.name : null;
             approvalStatus = latestApproval.status;
             approvalComment = latestApproval.comment;
         }
     }
+
+    const assignees = Array.isArray(ticket.assignees)
+        ? ticket.assignees.map((u: any) => ({ id: u.id, name: u.name, email: u.email }))
+        : [];
+
+    // Primary assignee (lifecycle owner). Fall back to the first of the set so
+    // the field is populated even for rows created before this column existed.
+    const primary = ticket.assignee
+        ? { id: ticket.assignee.id, name: ticket.assignee.name, email: ticket.assignee.email }
+        : assignees[0] || null;
+
+    const pv = ticket.platformVersion
+        ? {
+              id: ticket.platformVersion.id,
+              platform: ticket.platformVersion.platform,
+              version: ticket.platformVersion.version,
+              label: `${ticket.platformVersion.platform} · ${ticket.platformVersion.version}`,
+          }
+        : null;
 
     return {
         id: ticket.id,
@@ -348,11 +472,10 @@ const toTicketResponseDto = (ticket: any): TicketResponseDto => {
             name: ticket.reporter.name,
             email: ticket.reporter.email
         },
-        assignee: ticket.assignee ? {
-            id: ticket.assignee.id,
-            name: ticket.assignee.name,
-            email: ticket.assignee.email
-        } : null,
+        assignee: primary,
+        assignees,
+        platformVersionId: ticket.platformVersionId ?? ticket.platformVersion?.id ?? null,
+        platformVersion: pv,
         reviewedBy,
         approvalStatus,
         comment: approvalComment,

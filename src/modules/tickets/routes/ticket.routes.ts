@@ -13,6 +13,7 @@ import { validate } from '../../../middlewares/validator.middleware';
 import { createTicketSchema, ticketIdParamsSchema, updateTicketSchema, createApprovalSchema, createCommentSchema } from '../../../utils/ticket.validation';
 import { getStatuses } from '../controllers/fetch-status.controller';
 import { ensureCollectionSchema } from '../../collections/services/collection-bootstrap.service';
+import { ensureTicketFeatureSchema } from '../services/ticket-features-bootstrap.service';
 
 export const ticketRouter = Router();
 
@@ -22,13 +23,15 @@ ticketRouter.get('/statuses', getStatuses);
 // All ticket operations are tenant-scoped.
 ticketRouter.use(authenticateToken, requireOrganization);
 
-// Ticket queries join the collections table — make sure its schema exists
-// before any handler runs (no-op after the first call per container).
+// Ticket queries join the collections table and the assignee/platform-version
+// tables — make sure all of it exists before any handler runs (no-op after the
+// first call per container).
 ticketRouter.use((req: Request, res: Response, next: NextFunction) => {
   ensureCollectionSchema()
+    .then(() => ensureTicketFeatureSchema())
     .then(() => next())
     .catch((err) => {
-      console.error('[tickets] failed to ensure collection schema:', err);
+      console.error('[tickets] failed to ensure schema:', err);
       next(); // degrade gracefully — core ticket flow must not be blocked
     });
 });

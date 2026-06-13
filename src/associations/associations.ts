@@ -10,6 +10,8 @@ import { Message } from '../modules/conversations/models/message.model';
 import { AiConversation } from '../modules/ai/models/ai-conversation.model';
 import { AiMessage } from '../modules/ai/models/ai-message.model';
 import { Collection } from '../modules/collections/models/collection.model';
+import { PlatformVersion } from '../modules/collections/models/platform-version.model';
+import { TicketAssignee } from '../modules/tickets/models/ticket-assignee.model';
 import { Notification } from '../modules/notifications/models/notification.model';
 import { NotificationSettings } from '../modules/users/models/notification-settings.model';
 import { Organization } from '../modules/organizations/models/organization.model';
@@ -47,6 +49,30 @@ export const defineAssociations = () => {
 
     User.hasMany(Ticket, { foreignKey: 'assignedTo', as: 'assignedTickets' });
     Ticket.belongsTo(User, { foreignKey: 'assignedTo', as: 'assignee' });
+
+    // Multiple assignees per ticket (the full set). `assignee`/`assignedTo`
+    // above remains the primary/lifecycle owner; this is the complete roster.
+    Ticket.belongsToMany(User, {
+      through: TicketAssignee,
+      as: 'assignees',
+      foreignKey: 'ticketId',
+      otherKey: 'userId',
+    });
+    User.belongsToMany(Ticket, {
+      through: TicketAssignee,
+      as: 'assignedTicketsAll',
+      foreignKey: 'userId',
+      otherKey: 'ticketId',
+    });
+    Ticket.hasMany(TicketAssignee, { foreignKey: 'ticketId', as: 'assigneeLinks' });
+    TicketAssignee.belongsTo(Ticket, { foreignKey: 'ticketId', as: 'ticket' });
+    TicketAssignee.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+
+    // Per-collection platform/version catalog; tickets reference one entry.
+    Collection.hasMany(PlatformVersion, { foreignKey: 'collectionId', as: 'platformVersions' });
+    PlatformVersion.belongsTo(Collection, { foreignKey: 'collectionId', as: 'collection' });
+    PlatformVersion.hasMany(Ticket, { foreignKey: 'platformVersionId', as: 'tickets' });
+    Ticket.belongsTo(PlatformVersion, { foreignKey: 'platformVersionId', as: 'platformVersion' });
 
     TicketStatus.hasMany(Ticket, { foreignKey: 'statusId', as: 'tickets' });
     Ticket.belongsTo(TicketStatus, { foreignKey: 'statusId', as: 'status' });

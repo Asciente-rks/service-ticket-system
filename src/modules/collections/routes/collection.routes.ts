@@ -15,15 +15,18 @@ import {
   collectionIdParamsSchema,
 } from '../../../utils/collection.validation';
 import { ensureCollectionSchema } from '../services/collection-bootstrap.service';
+import { ensureTicketFeatureSchema } from '../../tickets/services/ticket-features-bootstrap.service';
+import { platformVersionRouter } from './platform-version.routes';
 
 export const collectionRouter = Router();
 
 // All collection endpoints are authenticated and tenant-scoped.
 collectionRouter.use(authenticateToken, requireOrganization);
 
-// Self-provision the collections schema on first use (no-op afterwards).
+// Self-provision the collections + feature schema on first use (no-op afterwards).
 collectionRouter.use((req: Request, res: Response, next: NextFunction) => {
   ensureCollectionSchema()
+    .then(() => ensureTicketFeatureSchema())
     .then(() => next())
     .catch((err) => {
       console.error('[collections] failed to ensure schema:', err);
@@ -36,3 +39,6 @@ collectionRouter.get('/', listCollections);
 collectionRouter.post('/', authorizeRoles([ROLES.ADMIN]), validate(createCollectionSchema), createCollection);
 collectionRouter.patch('/:id', authorizeRoles([ROLES.ADMIN]), validate(updateCollectionSchema), updateCollection);
 collectionRouter.delete('/:id', authorizeRoles([ROLES.ADMIN]), validate(collectionIdParamsSchema), deleteCollection);
+
+// Per-collection platform/version catalog (e.g. "Web · 1.1.0").
+collectionRouter.use('/:collectionId/platform-versions', platformVersionRouter);

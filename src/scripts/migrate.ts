@@ -306,6 +306,82 @@ const run = async () => {
     console.warn('Could not purge orphaned notifications:', err.message);
   }
 
+  // 19) ticket_assignees — multiple assignees per ticket (the full set). The
+  //     single tickets.assigned_to column remains the primary/lifecycle owner.
+  if (!(await tableExists('ticket_assignees'))) {
+    console.log('Creating table: ticket_assignees');
+    await sequelize.query(`
+      CREATE TABLE ticket_assignees (
+        id CHAR(36) NOT NULL PRIMARY KEY,
+        ticket_id CHAR(36) NOT NULL,
+        user_id CHAR(36) NOT NULL,
+        organization_id CHAR(36) NOT NULL,
+        created_by CHAR(36) NULL,
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL,
+        UNIQUE KEY uniq_ticket_assignee (ticket_id, user_id),
+        INDEX idx_ticket_assignees_user (user_id),
+        INDEX idx_ticket_assignees_ticket (ticket_id),
+        CONSTRAINT fk_ticket_assignees_ticket FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
+      );
+    `);
+  } else {
+    console.log('Table ticket_assignees already exists — skipping.');
+  }
+
+  // 20) platform_versions — per-collection build catalog (e.g. "Web · 1.1.0").
+  if (!(await tableExists('platform_versions'))) {
+    console.log('Creating table: platform_versions');
+    await sequelize.query(`
+      CREATE TABLE platform_versions (
+        id CHAR(36) NOT NULL PRIMARY KEY,
+        organization_id CHAR(36) NOT NULL,
+        collection_id CHAR(36) NOT NULL,
+        platform VARCHAR(60) NOT NULL,
+        version VARCHAR(60) NOT NULL,
+        created_by CHAR(36) NULL,
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL,
+        UNIQUE KEY uniq_platform_version (collection_id, platform, version),
+        INDEX idx_platform_versions_collection (collection_id),
+        INDEX idx_platform_versions_org (organization_id)
+      );
+    `);
+  } else {
+    console.log('Table platform_versions already exists — skipping.');
+  }
+
+  // 21) tickets.platform_version_id — which build a ticket was observed on.
+  if (!(await columnExists('tickets', 'platform_version_id'))) {
+    console.log('Adding column: tickets.platform_version_id');
+    await sequelize.query(`ALTER TABLE tickets ADD COLUMN platform_version_id CHAR(36) NULL;`);
+    try {
+      await sequelize.query(`CREATE INDEX idx_tickets_platform_version ON tickets (platform_version_id);`);
+    } catch (err: any) {
+      console.warn('Could not create idx_tickets_platform_version (may already exist):', err.message);
+    }
+  } else {
+    console.log('Column tickets.platform_version_id already exists — skipping.');
+  }
+
+  // 22) Backfill ticket_assignees from each ticket's existing single assignee,
+  //     so historical assignments survive the move to a set. Idempotent.
+  console.log('Backfilling ticket_assignees from tickets.assigned_to');
+  try {
+    await sequelize.query(`
+      INSERT INTO ticket_assignees (id, ticket_id, user_id, organization_id, created_by, createdAt, updatedAt)
+      SELECT UUID(), t.id, t.assigned_to, t.organization_id, NULL, NOW(), NOW()
+      FROM tickets t
+      WHERE t.assigned_to IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM ticket_assignees ta
+          WHERE ta.ticket_id = t.id AND ta.user_id = t.assigned_to
+        );
+    `);
+  } catch (err: any) {
+    console.warn('Could not backfill ticket_assignees:', err.message);
+  }
+
   console.log('--- Migration complete ---');
   await sequelize.close();
 };
